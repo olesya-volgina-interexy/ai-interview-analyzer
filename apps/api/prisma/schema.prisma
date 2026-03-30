@@ -1,0 +1,37 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Interview {
+  id            String   @id @default(uuid())
+  transcript    String
+  cvText        String?
+  brokerRequest String?
+  role          String
+  level         String
+  decision      String
+  clientName    String?
+  candidateName String?
+  comments      String?
+  krisLink      String?
+  cvUrl         String?
+  linearIssueId String?
+  analysis      Json
+  embeddingId   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Client {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  insights    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

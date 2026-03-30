@@ -1,0 +1,14 @@
+{
+  "name": "ai-interview-analyzer",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --parallel -r dev",
+    "build": "pnpm -r build",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down",
+    "infra:reset": "docker compose down -v && docker compose up -d"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
