@@ -45,4 +45,12 @@ export async function interviewRoutes(fastify: FastifyInstance) {
       return interview;
     }
   );
+  fastify.delete<{ Params: { id: string } }>(
+    '/interviews/:id',
+    async (request, reply) => {
+      const { id } = request.params;
+      await prisma.interview.delete({ where: { id } });
+      return reply.status(204).send();
+    }
+  );
 }

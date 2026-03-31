@@ -71,4 +71,7 @@ export const interviewsApi = {
 
   getStats: () =>
     api.get<InterviewStats>('/interviews/stats'),
+
+  delete: (id: string) =>
+    api.delete(`/interviews/${id}`),
 };
