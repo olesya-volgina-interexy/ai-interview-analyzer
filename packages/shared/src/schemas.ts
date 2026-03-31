@@ -1,9 +1,13 @@
 import { z } from 'zod';
 
+export const InterviewStageSchema = z.enum(['manager_call', 'technical']);
+
 export const InterviewMetaSchema = z.object({
+  stage: InterviewStageSchema,                   // ← NEW: этап
   role: z.enum(['Backend', 'Frontend', 'Fullstack', 'DevOps', 'QA', 'Mobile']),
   level: z.enum(['Junior', 'Middle', 'Senior']),
-  decision: z.enum(['hired', 'rejected']),
+  // decision только для technical этапа
+  decision: z.enum(['hired', 'rejected']).optional(),
   clientName: z.string().optional(),
   candidateName: z.string().optional(),
   interviewerComments: z.string().optional(),
@@ -12,6 +16,33 @@ export const InterviewMetaSchema = z.object({
   linearIssueId: z.string().optional(),
   cvUrl: z.string().url().optional(),
   brokerRequest: z.string().optional(),
+});
+
+export const ManagerCallAnalysisSchema = z.object({
+  stage: z.literal('manager_call'),
+  overallImpression: z.string(),                 // общее впечатление от звонка
+  softSkills: z.object({
+    communication: z.string(),                   // качество коммуникации
+    motivation: z.string(),                      // мотивация кандидата
+    cultureFit: z.string(),                      // соответствие культуре клиента
+    salaryExpectations: z.string(),              // зарплатные ожидания vs запрос
+    clarityOfThought: z.string(),                // чёткость мышления и речи
+  }),
+  strengths: z.array(z.string()),
+  weaknesses: z.array(z.string()),
+  risks: z.array(z.string()),
+  // Соответствие запросу брокера по soft-критериям
+  brokerSoftFit: z.object({
+    coveredRequirements: z.array(z.string()),
+    missingRequirements: z.array(z.string()),
+    fitSummary: z.string(),
+  }),
+  // Решение после менеджер-колла
+  stageResult: z.enum(['passed', 'rejected', 'on_hold']),
+  // on_hold = клиент перестал отвечать / позиция заморожена
+  reasoning: z.string(),
+  decisionBreakers: z.array(z.string()),         // причины если rejected
+  recommendation: z.string(),                    // рекомендация рекрутеру
 });
 
 export const CVMatchSchema = z.object({
@@ -30,16 +61,18 @@ export const BrokerRequestMatchSchema = z.object({
   brokerFitSummary: z.string(),
 });
 
-export const CandidateAnalysisSchema = z.object({
+export const TechnicalAnalysisSchema = z.object({
+  stage: z.literal('technical'),
   overallAssessment: z.string(),
   technicalLevel: z.enum(['Junior', 'Middle', 'Senior']),
   strengths: z.array(z.string()),
   weaknesses: z.array(z.string()),
   risks: z.array(z.string()),
-  softSkills: z.object({
-    communication: z.string(),
-    structureOfAnswers: z.string(),
-    behaviorUnderPressure: z.string(),
+  technicalSkills: z.object({
+    depthOfKnowledge: z.string(),                // глубина знаний
+    problemSolving: z.string(),                  // решение задач
+    codeQuality: z.string(),                     // качество кода (если было)
+    systemDesign: z.string(),                    // системное мышление
   }),
   cvMatch: CVMatchSchema,
   brokerRequestMatch: BrokerRequestMatchSchema,
@@ -47,8 +80,13 @@ export const CandidateAnalysisSchema = z.object({
   reasoning: z.string(),
   decisionBreakers: z.array(z.string()),
   roleFitSummary: z.string(),
-  score: z.number().min(0).max(100).optional(),
+  score: z.number().min(0).max(100),
 });
+
+export const CandidateAnalysisSchema = z.discriminatedUnion('stage', [
+  ManagerCallAnalysisSchema,
+  TechnicalAnalysisSchema,
+]);
 
 export const AnalyzeRequestSchema = z.object({
   transcript: z.string().min(100),
@@ -69,10 +107,13 @@ export const ChatRequestSchema = z.object({
   history: z.array(ChatMessageSchema),
 });
 
+export type InterviewStage = z.infer<typeof InterviewStageSchema>;
 export type InterviewMeta = z.infer<typeof InterviewMetaSchema>;
+export type ManagerCallAnalysis = z.infer<typeof ManagerCallAnalysisSchema>;
+export type TechnicalAnalysis = z.infer<typeof TechnicalAnalysisSchema>;
+export type CandidateAnalysis = z.infer<typeof CandidateAnalysisSchema>;
 export type CVMatch = z.infer<typeof CVMatchSchema>;
 export type BrokerRequestMatch = z.infer<typeof BrokerRequestMatchSchema>;
-export type CandidateAnalysis = z.infer<typeof CandidateAnalysisSchema>;
 export type AnalyzeRequest = z.infer<typeof AnalyzeRequestSchema>;
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;
