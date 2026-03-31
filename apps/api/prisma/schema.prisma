@@ -12,9 +12,10 @@ model Interview {
   transcript    String
   cvText        String?
   brokerRequest String?
+  stage         String
   role          String
   level         String
-  decision      String
+  decision      String?
   clientName    String?
   candidateName String?
   comments      String?
