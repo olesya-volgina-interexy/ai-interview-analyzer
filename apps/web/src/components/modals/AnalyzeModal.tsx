@@ -4,6 +4,8 @@ import { AnalyzeProgress } from '../analyze/AnalyzeProgress';
 import { AnalysisResult } from '../analysis/AnalysisResult';
 import { useAnalyze } from '@/hooks/useAnalyze';
 import { Button } from '@/components/ui/button';
+import { useNavigate } from '@tanstack/react-router';
+import { useQueryClient } from '@tanstack/react-query';
 
 interface AnalyzeModalProps {
   open: boolean;
@@ -12,10 +14,19 @@ interface AnalyzeModalProps {
 
 export function AnalyzeModal({ open, onClose }: AnalyzeModalProps) {
   const { state, progress, result, error, startAnalysis, reset } = useAnalyze();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const handleClose = () => {
     reset();
     onClose();
+  };
+
+  const handleViewInHistory = () => {
+    queryClient.invalidateQueries({ queryKey: ['interviews'] });
+    reset();
+    onClose();
+    navigate({ to: '/interviews' });
   };
 
   return (
@@ -44,6 +55,7 @@ export function AnalyzeModal({ open, onClose }: AnalyzeModalProps) {
             <div className="flex gap-2 pt-2">
               <Button variant="outline" onClick={reset}>New Analysis</Button>
               <Button variant="outline" onClick={handleClose}>Close</Button>
+              <Button onClick={handleViewInHistory}>View in History →</Button>
             </div>
           </div>
         )}
