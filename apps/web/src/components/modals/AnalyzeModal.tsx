@@ -6,6 +6,7 @@ import { useAnalyze } from '@/hooks/useAnalyze';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from '@tanstack/react-router';
 import { useQueryClient } from '@tanstack/react-query';
+import { ErrorMessage } from '@/components/ui/ErrorMessage';
 
 interface AnalyzeModalProps {
   open: boolean;
@@ -61,9 +62,11 @@ export function AnalyzeModal({ open, onClose }: AnalyzeModalProps) {
         )}
 
         {state === 'failed' && (
-          <div className="text-center py-8 space-y-4">
-            <p className="text-red-600">{error}</p>
-            <Button onClick={reset}>Try Again</Button>
+          <div className="py-6">
+            <ErrorMessage
+              error={error}
+              onRetry={reset}
+            />
           </div>
         )}
       </DialogContent>

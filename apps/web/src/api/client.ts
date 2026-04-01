@@ -1,10 +1,56 @@
-import axios from 'axios';
-import type { AnalyzeRequest, CandidateAnalysis, InterviewMeta } from '@shared/schemas';
+import axios, { AxiosError } from 'axios';
+import type { AnalyzeRequest, CandidateAnalysis } from '@shared/schemas';
 
 const api = axios.create({
   baseURL: '/api',
   headers: { 'Content-Type': 'application/json' },
 });
+
+// ── Глобальный перехватчик ошибок ──────────────────────────────────────────
+
+api.interceptors.response.use(
+  res => res,
+  (error: AxiosError) => {
+    if (!error.response) {
+      // Нет соединения с сервером
+      throw new ApiError('Unable to connect to the server. Please check that the API is running.', 'NETWORK_ERROR');
+    }
+
+    const status = error.response.status;
+    const data = error.response.data as any;
+
+    switch (status) {
+      case 400:
+        throw new ApiError(data?.message ?? 'Invalid request data. Please check the form.', 'VALIDATION_ERROR');
+      case 404:
+        throw new ApiError('Resource not found.', 'NOT_FOUND');
+      case 429:
+        throw new ApiError('Too many requests. Please wait a moment and try again.', 'RATE_LIMIT');
+      case 500:
+        throw new ApiError('Server error. Please try again later.', 'SERVER_ERROR');
+      default:
+        throw new ApiError(`Unexpected error (${status}). Please try again.`, 'UNKNOWN_ERROR');
+    }
+  }
+);
+
+// ── ApiError класс ─────────────────────────────────────────────────────────
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public code: 'NETWORK_ERROR' | 'VALIDATION_ERROR' | 'NOT_FOUND' | 'RATE_LIMIT' | 'SERVER_ERROR' | 'UNKNOWN_ERROR'
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
+export function getErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) return error.message;
+  if (error instanceof Error) return error.message;
+  return 'An unexpected error occurred. Please try again.';
+}
 
 // ── Типы ответов ───────────────────────────────────────────────────────────
 
