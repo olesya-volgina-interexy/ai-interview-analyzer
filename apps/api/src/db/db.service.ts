@@ -46,6 +46,7 @@ export async function getInterviews(filters?: {
     where: {
       ...(filters?.role && { role: filters.role }),
       ...(filters?.level && { level: filters.level }),
+      ...(filters?.stage && { stage: filters.stage }),
       ...(filters?.clientName && { clientName: filters.clientName }),
       ...(filters?.decision && { decision: filters.decision }),
     },
@@ -54,6 +55,7 @@ export async function getInterviews(filters?: {
     take: limit,
     select: {
       id: true,
+      stage: true,
       role: true,
       level: true,
       decision: true,
