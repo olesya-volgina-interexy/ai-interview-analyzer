@@ -17,7 +17,7 @@ export function TechnicalResult({ analysis }: { analysis: TechnicalAnalysis }) {
     <div className="space-y-4">
 
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-3">
           <Badge className={rec.className}>{rec.label}</Badge>
           {analysis.technicalLevel && (
@@ -44,13 +44,13 @@ export function TechnicalResult({ analysis }: { analysis: TechnicalAnalysis }) {
       </Card>
 
       {/* CV Match + Broker Match */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <CVMatchBlock cvMatch={analysis.cvMatch} />
         <BrokerMatchBlock brokerMatch={analysis.brokerRequestMatch} />
       </div>
 
       {/* Strengths + Weaknesses */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="pb-2"><CardTitle className="text-sm text-green-700">✓ Strengths</CardTitle></CardHeader>
           <CardContent>

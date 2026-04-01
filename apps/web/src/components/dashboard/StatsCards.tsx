@@ -22,7 +22,7 @@ function StatCard({ label, value, sub }: StatCardProps) {
 export function StatsCards({ stats }: { stats: InterviewStats | undefined }) {
   if (!stats) {
     return (
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[...Array(4)].map((_, i) => (
           <Card key={i}>
             <CardContent className="pt-5 pb-4">
@@ -39,7 +39,7 @@ export function StatsCards({ stats }: { stats: InterviewStats | undefined }) {
   const technical = stats.byStage?.technical ?? 0;
 
   return (
-    <div className="grid grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
       <StatCard
         label="Total Interviews"
         value={stats.total}

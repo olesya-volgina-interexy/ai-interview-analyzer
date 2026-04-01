@@ -65,7 +65,7 @@ export function AnalyzeForm({ onSubmit }: { onSubmit: (data: AnalyzeRequest) => 
 
       {/* Interview Details */}
       <SectionTitle>Interview Details</SectionTitle>
-      <div className="grid grid-cols-3 gap-4 mb-4 w-full gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4 w-full">
         <div className="w-full">
           <Label className="text-sm font-medium text-slate-700">Stage</Label>
           <Select
@@ -146,7 +146,7 @@ export function AnalyzeForm({ onSubmit }: { onSubmit: (data: AnalyzeRequest) => 
 
       {/* Participants */}
       <SectionTitle>Participants</SectionTitle>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-1.5">
           <Label className="text-sm font-medium text-slate-700">Client Name</Label>
           <Input

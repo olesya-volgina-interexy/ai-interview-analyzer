@@ -15,7 +15,7 @@ export function InterviewsPage() {
   });
 
   return (
-    <div className="p-6 space-y-4">
+    <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Interview History</h1>
         <span className="text-sm text-slate-500">{interviews?.length ?? 0} records</span>
