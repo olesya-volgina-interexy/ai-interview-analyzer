@@ -55,7 +55,7 @@ export function ManagerCallResult({ analysis }: { analysis: ManagerCallAnalysis 
       </Card>
 
       {/* Strengths + Weaknesses */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-green-700">✓ Strengths</CardTitle>

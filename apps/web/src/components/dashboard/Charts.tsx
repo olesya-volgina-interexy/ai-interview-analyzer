@@ -27,7 +27,7 @@ export function Charts({ stats }: ChartsProps) {
   if (roleData.length === 0) return null;
 
   return (
-    <div className="grid grid-cols-2 gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
       {/* By Role */}
       <Card>

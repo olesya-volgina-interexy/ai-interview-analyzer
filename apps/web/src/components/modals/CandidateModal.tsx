@@ -93,9 +93,9 @@ ${analysis.decisionBreakers.map((d: string) => `• ${d}`).join('\n')}
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto scrollbar-thin">
+      <DialogContent className="w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto scrollbar-thin">
         <DialogHeader>
-          <div className="flex items-start justify-between pr-8">
+          <div className="flex flex-col gap-2 pr-8 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <DialogTitle>
                 {isLoading ? '...' : (data?.candidateName ?? 'Candidate')}
@@ -109,7 +109,7 @@ ${analysis.decisionBreakers.map((d: string) => `• ${d}`).join('\n')}
 
             {/* Кнопки действий */}
             {data && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-shrink-0">
                 <Button
                   variant="outline"
                   size="sm"

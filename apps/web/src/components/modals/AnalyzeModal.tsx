@@ -32,7 +32,7 @@ export function AnalyzeModal({ open, onClose }: AnalyzeModalProps) {
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="w-[80%] max-w-none max-h-[90vh] overflow-y-auto scrollbar-thin bg-white">
+      <DialogContent className="w-[95vw] sm:w-[80%] max-w-none max-h-[90vh] overflow-y-auto scrollbar-thin bg-white">
         <DialogHeader>
           <DialogTitle>
             {state === 'idle' && 'New Analysis'}
@@ -53,7 +53,7 @@ export function AnalyzeModal({ open, onClose }: AnalyzeModalProps) {
         {state === 'completed' && result && (
           <div className="space-y-4">
             <AnalysisResult analysis={result.analysis} />
-            <div className="flex gap-2 pt-2">
+            <div className="flex flex-wrap gap-2 pt-2">
               <Button variant="outline" onClick={reset}>New Analysis</Button>
               <Button variant="outline" onClick={handleClose}>Close</Button>
               <Button onClick={handleViewInHistory}>View in History →</Button>

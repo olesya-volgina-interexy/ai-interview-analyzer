@@ -35,10 +35,10 @@ export function InterviewFilters({ value, onChange }: InterviewFiltersProps) {
   const hasActiveFilters = Object.values(value).some(Boolean);
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
 
       <Select value={value.role ?? 'all'} onValueChange={v => set('role', v)}>
-        <SelectTrigger className="w-36 h-8 text-sm">
+        <SelectTrigger className="w-full sm:w-36 h-8 text-sm">
           <SelectValue>{value.role ?? 'All Roles'}</SelectValue>
         </SelectTrigger>
         <SelectContent>
@@ -50,7 +50,7 @@ export function InterviewFilters({ value, onChange }: InterviewFiltersProps) {
       </Select>
 
       <Select value={value.level ?? 'all'} onValueChange={v => set('level', v)}>
-        <SelectTrigger className="w-32 h-8 text-sm">
+        <SelectTrigger className="w-full sm:w-32 h-8 text-sm">
           <SelectValue>{value.level ?? 'All Levels'}</SelectValue>
         </SelectTrigger>
         <SelectContent>
@@ -62,7 +62,7 @@ export function InterviewFilters({ value, onChange }: InterviewFiltersProps) {
       </Select>
 
       <Select value={value.stage ?? 'all'} onValueChange={v => set('stage', v)}>
-        <SelectTrigger className="w-36 h-8 text-sm">
+        <SelectTrigger className="w-full sm:w-36 h-8 text-sm">
           <SelectValue>{value.stage ? STAGE_LABELS[value.stage] : 'All Stages'}</SelectValue>
         </SelectTrigger>
         <SelectContent>
@@ -73,7 +73,7 @@ export function InterviewFilters({ value, onChange }: InterviewFiltersProps) {
       </Select>
 
       <Select value={value.decision ?? 'all'} onValueChange={v => set('decision', v)}>
-        <SelectTrigger className="w-36 h-8 text-sm">
+        <SelectTrigger className="w-full sm:w-36 h-8 text-sm">
           <SelectValue>{value.decision ? DECISION_LABELS[value.decision] : 'All Decisions'}</SelectValue>
         </SelectTrigger>
         <SelectContent>
@@ -87,7 +87,7 @@ export function InterviewFilters({ value, onChange }: InterviewFiltersProps) {
         value={value.clientName ?? ''}
         onChange={e => onChange({ ...value, clientName: e.target.value || undefined })}
         placeholder="Search by client..."
-        className="w-44 h-8 text-sm"
+        className="w-full sm:w-44 h-8 text-sm"
       />
 
       {hasActiveFilters && (
@@ -95,7 +95,7 @@ export function InterviewFilters({ value, onChange }: InterviewFiltersProps) {
           variant="ghost"
           size="sm"
           onClick={reset}
-          className="h-8 gap-1.5 text-slate-500 hover:text-slate-700"
+          className="col-span-2 sm:col-span-1 h-8 gap-1.5 text-slate-500 hover:text-slate-700"
         >
           <X size={14} />
           Clear filters

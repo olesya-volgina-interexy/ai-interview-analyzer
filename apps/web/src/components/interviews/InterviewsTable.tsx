@@ -54,8 +54,8 @@ export function InterviewsTable({ data, isLoading, onRowClick }: InterviewsTable
   }
 
   return (
-    <div className="rounded-md border overflow-hidden">
-      <table className="w-full text-sm">
+    <div className="rounded-md border overflow-hidden overflow-x-auto">
+      <table className="w-full text-sm min-w-[640px]">
         <thead className="bg-slate-50 border-b">
           <tr>
             <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Date</th>
