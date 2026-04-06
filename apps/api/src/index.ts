@@ -5,10 +5,12 @@ import { initQdrantCollection } from './db/qdrant';
 import { analyzeRoutes } from './routes/analyze';
 import { interviewRoutes } from './routes/interviews';
 import './workers/analyze.worker';
+import { linearWebhookRoutes } from './routes/webhooks/linear';
 
 const app = Fastify({ logger: true });
 
 app.register(cors, { origin: 'http://localhost:5173' });
+app.register(linearWebhookRoutes);
 
 app.register(analyzeRoutes);
 app.register(interviewRoutes);

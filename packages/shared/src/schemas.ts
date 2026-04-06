@@ -83,9 +83,25 @@ export const TechnicalAnalysisSchema = z.object({
   score: z.number().min(0).max(100),
 });
 
+export const FinalResultAnalysisSchema = z.object({
+  stage: z.literal('final_result'),
+  overallAssessment: z.string(),
+  softSkillsSummary: z.string(),      // сводка из менеджер-колла
+  technicalSummary: z.string(),       // сводка из технички
+  strengths: z.array(z.string()),
+  weaknesses: z.array(z.string()),
+  risks: z.array(z.string()),
+  recommendation: z.string(),
+  reasoning: z.string(),
+  decisionBreakers: z.array(z.string()),
+  decision: z.enum(['hired', 'rejected']),
+});
+
+
 export const CandidateAnalysisSchema = z.discriminatedUnion('stage', [
   ManagerCallAnalysisSchema,
   TechnicalAnalysisSchema,
+  FinalResultAnalysisSchema,
 ]);
 
 export const AnalyzeRequestSchema = z.object({
@@ -107,6 +123,7 @@ export const ChatRequestSchema = z.object({
   history: z.array(ChatMessageSchema),
 });
 
+export type FinalResultAnalysis = z.infer<typeof FinalResultAnalysisSchema>;
 export type InterviewStage = z.infer<typeof InterviewStageSchema>;
 export type InterviewMeta = z.infer<typeof InterviewMetaSchema>;
 export type ManagerCallAnalysis = z.infer<typeof ManagerCallAnalysisSchema>;

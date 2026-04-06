@@ -8,12 +8,14 @@ export async function createInterview(data: {
   analysis: CandidateAnalysis;
   cvText?: string;
   brokerRequest?: string;
+  parentCommentId?: string;
 }) {
   return prisma.interview.create({
     data: {
       transcript: data.transcript,
       cvText: data.cvText,
       brokerRequest: data.brokerRequest,
+      parentCommentId: data.parentCommentId,
       stage: data.meta.stage,
       role: data.meta.role,
       level: data.meta.level,
@@ -92,5 +94,25 @@ export async function updateEmbeddingId(interviewId: string, embeddingId: string
   return prisma.interview.update({
     where: { id: interviewId },
     data: { embeddingId },
+  });
+}
+
+export async function getInterviewsByLinearIssueId(
+  linearIssueId: string,
+  stages: string[]
+) {
+  return prisma.interview.findMany({
+    where: {
+      linearIssueId,
+      stage: { in: stages },
+    },
+    orderBy: { createdAt: 'asc' },
+    select: {
+      id: true,
+      stage: true,
+      role: true,
+      level: true,
+      analysis: true,
+    },
   });
 }

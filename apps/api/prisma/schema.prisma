@@ -22,6 +22,7 @@ model Interview {
   krisLink      String?
   cvUrl         String?
   linearIssueId String?
+  parentCommentId String?
   analysis      Json
   embeddingId   String?
   createdAt     DateTime @default(now())
