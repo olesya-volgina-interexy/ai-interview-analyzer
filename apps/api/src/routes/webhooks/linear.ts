@@ -1,3 +1,5 @@
+// apps/api/src/routes/webhooks/linear.ts
+
 import crypto from 'crypto';
 import type { FastifyInstance } from 'fastify';
 import {
@@ -10,7 +12,6 @@ import {
 import { extractCVText, detectLevelFromCV } from '../../services/cv.service';
 import { analyzeQueue } from '../../workers/analyze.worker';
 
-// Точные названия статусов в Linear (уточнить у ментора если отличаются)
 const STATUS_BROKERS_CALL = "Broker's Call";
 const STATUS_TECH_CALL = 'Tech Call';
 const STATUS_HIRED = 'Hired';
@@ -18,7 +19,6 @@ const STATUS_LOST = 'Lost';
 
 export async function linearWebhookRoutes(fastify: FastifyInstance) {
 
-  // Получаем raw body для верификации подписи
   fastify.addContentTypeParser(
     'application/json',
     { parseAs: 'string' },
@@ -29,7 +29,6 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
     const rawBody = request.body as string;
     const signature = request.headers['linear-signature'] as string;
 
-    // Верификация подписи
     if (!verifySignature(rawBody, signature)) {
       fastify.log.warn('Invalid Linear webhook signature');
       return reply.status(401).send({ error: 'Invalid signature' });
@@ -37,7 +36,6 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
 
     const payload = JSON.parse(rawBody);
 
-    // Защита от replay атак
     if (!isTimestampFresh(payload.webhookTimestamp)) {
       fastify.log.warn('Stale Linear webhook');
       return reply.status(400).send({ error: 'Stale webhook' });
@@ -45,51 +43,69 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
 
     const { action, type, data, updatedFrom } = payload;
 
-    // Обрабатываем только Issue update события со сменой статуса
-    if (type !== 'Issue' || action !== 'update' || !updatedFrom?.stateId || !data.state) {
-      return reply.status(200).send({ ok: true });
-    }
-
-    const newStatus = data.state.name;
-    const issueId = data.id;
-
-    fastify.log.info(`Linear: issue ${issueId} → "${newStatus}"`);
-
     try {
-      const parsed = await parseIssue(issueId);
 
-      if (newStatus === STATUS_BROKERS_CALL) {
-        // Триггер 1: анализ менеджер-колла
-        const candidates = findCandidatesForManagerCall(parsed.candidates);
-        fastify.log.info(`Manager call candidates ready: ${candidates.length}`);
+      // ── Триггер на новый комментарий ────────────────────────────────────
+      if (type === 'Comment' && action === 'create') {
+        const commentBody = data.body ?? '';
+        const issueId = data.issue?.id;
 
-        await Promise.all(
-          candidates.map(c => triggerManagerCall(issueId, parsed, c, fastify))
-        );
+        if (!issueId) return reply.status(200).send({ ok: true });
 
-      } else if (newStatus === STATUS_TECH_CALL) {
-        // Триггер 2: анализ технического интервью
-        const candidates = findCandidatesForTechCall(parsed.candidates);
-        fastify.log.info(`Tech call candidates ready: ${candidates.length}`);
+        fastify.log.info(`Linear: new comment in issue ${issueId}`);
 
-        await Promise.all(
-          candidates.map(c => triggerTechCall(issueId, parsed, c, fastify))
-        );
+        // Manager call — появился фидбек или транскрипция
+        if (
+          commentBody.includes('#feedback_manager_call') ||
+          commentBody.includes('#manager_call_transcript')
+        ) {
+          const parsed = await parseIssue(issueId);
+          if (parsed.status === STATUS_BROKERS_CALL) {
+            const candidates = findCandidatesForManagerCall(parsed.candidates);
+            fastify.log.info(`Manager call candidates ready: ${candidates.length}`);
+            await Promise.all(
+              candidates.map(c => triggerManagerCall(issueId, parsed, c, fastify))
+            );
+          }
+        }
 
-      } else if (newStatus === STATUS_HIRED || newStatus === STATUS_LOST) {
-        // Триггер 3: финальный анализ для всех кандидатов с хэштегом
-        const decision = newStatus === STATUS_HIRED ? 'hired' : 'lost';
-        const candidates = findCandidatesForFinalResult(parsed.candidates, decision);
-        fastify.log.info(`Final result candidates (${decision}): ${candidates.length}`);
+        // Technical call — появилась транскрипция технички
+        if (commentBody.includes('#technical_call_transcript')) {
+          const parsed = await parseIssue(issueId);
+          if (parsed.status === STATUS_TECH_CALL) {
+            const candidates = findCandidatesForTechCall(parsed.candidates);
+            fastify.log.info(`Tech call candidates ready: ${candidates.length}`);
+            await Promise.all(
+              candidates.map(c => triggerTechCall(issueId, parsed, c, fastify))
+            );
+          }
+        }
 
-        await Promise.all(
-          candidates.map(c => triggerFinalResult(issueId, parsed, c, decision, fastify))
-        );
+        return reply.status(200).send({ ok: true });
+      }
+
+      // ── Триггер на смену статуса Issue ──────────────────────────────────
+      if (type === 'Issue' && action === 'update' && updatedFrom?.stateId && data.state) {
+        const newStatus = data.state.name;
+        const issueId = data.id;
+
+        fastify.log.info(`Linear: issue ${issueId} → "${newStatus}"`);
+
+        const parsed = await parseIssue(issueId);
+
+        // Hired / Lost — финальный анализ
+        if (newStatus === STATUS_HIRED || newStatus === STATUS_LOST) {
+          const decision = newStatus === STATUS_HIRED ? 'hired' : 'lost';
+          const candidates = findCandidatesForFinalResult(parsed.candidates, decision);
+          fastify.log.info(`Final result candidates (${decision}): ${candidates.length}`);
+          await Promise.all(
+            candidates.map(c => triggerFinalResult(issueId, parsed, c, decision, fastify))
+          );
+        }
       }
 
     } catch (err) {
-      fastify.log.error({ err, issueId }, 'Linear webhook processing failed');
-      // Возвращаем 200 чтобы Linear не делал retry — логируем ошибку внутри
+      fastify.log.error({ err }, 'Linear webhook processing failed');
     }
 
     return reply.status(200).send({ ok: true });
@@ -105,15 +121,13 @@ async function triggerManagerCall(
   fastify: FastifyInstance
 ) {
   try {
-    // Скачиваем CV и определяем уровень
     const cvText = candidate.cvUrl
       ? await extractCVText(candidate.cvUrl)
       : '';
 
     const level = await detectLevelFromCV(cvText);
 
-    // Транскрипция — пока заглушка для Bluedot
-    // TODO: заменить на fetchTranscriptFromUrl(candidate.managerCallTranscriptUrl)
+    // TODO: заменить на fetchTranscriptFromUrl когда будет доступ к Bluedot
     const transcript = `[Transcript from Bluedot: ${candidate.managerCallTranscriptUrl}]`;
 
     await analyzeQueue.add('analyze', {
@@ -153,8 +167,7 @@ async function triggerTechCall(
 
     const level = await detectLevelFromCV(cvText);
 
-    // Транскрипция — пока заглушка для Bluedot
-    // TODO: заменить на fetchTranscriptFromUrl(candidate.technicalCallTranscriptUrl)
+    // TODO: заменить на fetchTranscriptFromUrl когда будет доступ к Bluedot
     const transcript = `[Transcript from Bluedot: ${candidate.technicalCallTranscriptUrl}]`;
 
     await analyzeQueue.add('analyze', {
@@ -166,7 +179,6 @@ async function triggerTechCall(
         clientName: parsed.clientName ?? undefined,
         linearIssueId: issueId,
         cvUrl: candidate.cvUrl ?? undefined,
-        // decision НЕ передаём — объективный анализ без результата
       },
       cvText,
       brokerRequest: parsed.brokerRequest ?? undefined,
@@ -190,11 +202,11 @@ async function triggerFinalResult(
 ) {
   try {
     await analyzeQueue.add('analyze', {
-      transcript: '', // для финального анализа транскрипция не нужна
+      transcript: '',
       meta: {
         stage: 'final_result' as any,
         role: parsed.role,
-        level: 'Middle', // для финального анализа уровень не критичен
+        level: 'Middle',
         decision: decision === 'hired' ? 'hired' : 'rejected',
         clientName: parsed.clientName ?? undefined,
         linearIssueId: issueId,
@@ -202,8 +214,6 @@ async function triggerFinalResult(
       additionalContext: {
         parentCommentId: candidate.rootCommentId,
         finalDecision: decision,
-        cvUrl: candidate.cvUrl,
-        brokerRequest: parsed.brokerRequest,
       },
     });
 
@@ -216,7 +226,7 @@ async function triggerFinalResult(
 // ── Утилиты ───────────────────────────────────────────────────────────────
 
 function verifySignature(rawBody: string, signature: string): boolean {
-  if (!process.env.LINEAR_WEBHOOK_SECRET) return true; // dev без секрета
+  if (!process.env.LINEAR_WEBHOOK_SECRET) return true;
   const hmac = crypto.createHmac('sha256', process.env.LINEAR_WEBHOOK_SECRET);
   hmac.update(rawBody);
   return hmac.digest('hex') === signature;
