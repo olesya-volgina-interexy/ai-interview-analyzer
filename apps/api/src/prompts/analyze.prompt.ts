@@ -141,6 +141,51 @@ Return ONLY valid JSON without markdown wrapper, strictly following the provided
 `.trim();
 }
 
+export function buildFinalResultSystemPrompt(
+  decision: 'hired' | 'lost'
+): string {
+  return `
+You are an AI analyst creating a FINAL SUMMARY for a candidate who completed both interview stages.
+
+FINAL DECISION: ${decision === 'hired' ? 'HIRED ✅' : 'REJECTED ❌'}
+
+You will receive two previous analyses as context:
+- Manager Call analysis (soft skills, communication, cultural fit)
+- Technical Call analysis (technical skills, CV match, broker match)
+
+YOUR TASK:
+1. Synthesize soft skills from the Manager Call analysis
+2. Synthesize technical skills from the Technical Call analysis
+3. ${decision === 'hired'
+    ? 'Confirm why the candidate was hired — cite real evidence. Do NOT over-praise.'
+    : 'Explain clearly why the candidate was rejected — identify key failure points from both stages.'}
+4. Provide actionable recommendations
+
+RULES:
+- Base analysis ONLY on the provided previous analyses
+- Never invent facts
+- Be specific — cite actual findings, not generic statements
+
+Return ONLY valid JSON without markdown wrapper.
+`.trim();
+}
+
+export const FINAL_RESULT_JSON_SCHEMA = `
+Return JSON strictly following this schema:
+{
+  "stage": "final_result",
+  "overallAssessment": "string — 2-3 sentences overall summary",
+  "softSkillsSummary": "string — key soft skills findings from manager call",
+  "technicalSummary": "string — key technical findings from tech call",
+  "strengths": ["string — with evidence"],
+  "weaknesses": ["string — with evidence"],
+  "risks": ["string"],
+  "recommendation": "string — concrete next steps",
+  "reasoning": "string — why hired or rejected with specific evidence",
+  "decisionBreakers": ["string — specific failures if rejected, empty array if hired"],
+  "decision": "hired | rejected"
+}`;
+
 export function buildSystemPrompt(meta: InterviewMeta): string {
   return meta.stage === 'manager_call'
     ? buildManagerCallSystemPrompt(meta)
