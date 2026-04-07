@@ -1,24 +1,32 @@
-import { fetchTranscriptFromUrl } from '../services/bluedot.service';
+// apps/api/scripts/test-bluedot.ts
+// Запуск: npx tsx scripts/test-bluedot.ts
+
+import { fetchTranscript } from '../services/bluedot.service';
+
+const TEST_CASES = [
+  {
+    label: 'Bluedot preview link',
+    url: 'https://app.bluedothq.com/preview/69d506193a9507cdc737cf1b',
+  },
+  // Раскомментируй если есть PDF:
+  // { label: 'PDF transcript', url: 'https://example.com/transcript.pdf' },
+];
 
 async function main() {
-  const url = 'https://app.bluedothq.com/preview/69c3f5079b3f4205c46e60c7';
+  for (const { label, url } of TEST_CASES) {
+    console.log(`\n${'─'.repeat(60)}`);
+    console.log(`Testing: ${label}`);
+    console.log(`URL: ${url}`);
 
-  const html = await fetchTranscriptFromUrl(url);
-
-  // Ищем JSON данные внутри HTML (Next.js часто хранит данные в __NEXT_DATA__)
-  const nextDataMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
-  if (nextDataMatch) {
-    const nextData = JSON.parse(nextDataMatch[1]);
-    console.log('NEXT_DATA keys:', Object.keys(nextData));
-    console.log('props keys:', Object.keys(nextData.props ?? {}));
-    console.log(JSON.stringify(nextData.props, null, 2).slice(0, 2000));
-  } else {
-    console.log('No NEXT_DATA found');
-
-    // Попробуем найти текст транскрипции напрямую
-    const bodyText = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
-    console.log('Plain text (first 1000):', bodyText.slice(0, 1000));
+    try {
+      const text = await fetchTranscript(url);
+      console.log(`✅ Success — ${text.length} chars`);
+      console.log('Preview (first 10000 chars):');
+      console.log(text.slice(0, 10000));
+    } catch (err: any) {
+      console.error(`❌ Failed: ${err.message}`);
+    }
   }
 }
 
-main().catch(console.error);
+main();

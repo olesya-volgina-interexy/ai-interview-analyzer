@@ -1,5 +1,3 @@
-// apps/api/src/routes/webhooks/linear.ts
-
 import crypto from 'crypto';
 import type { FastifyInstance } from 'fastify';
 import {
@@ -12,6 +10,7 @@ import {
 import { extractCVText, detectLevelFromCV, extractNameFromCV } from '../../services/cv.service';
 import { analyzeQueue } from '../../workers/analyze.worker';
 import { getExistingAnalysesForIssue } from '../../db/db.service';
+import { fetchTranscript } from '../../services/bluedot.service';
 
 const STATUS_BROKERS_CALL = "Broker's Call";
 const STATUS_TECH_CALL = 'Tech Call';
@@ -157,8 +156,6 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
   });
 }
 
-// ── Триггеры анализов ─────────────────────────────────────────────────────
-
 async function triggerManagerCall(
   issueId: string,
   parsed: any,
@@ -166,17 +163,26 @@ async function triggerManagerCall(
   fastify: FastifyInstance
 ) {
   try {
-    const cvText = candidate.cvUrl
-      ? await extractCVText(candidate.cvUrl)
-      : '';
+    const cvText = candidate.cvUrl ? await extractCVText(candidate.cvUrl) : '';
 
     const [level, candidateName] = await Promise.all([
       detectLevelFromCV(cvText),
       extractNameFromCV(cvText),
     ]);
 
-    // TODO: заменить на fetchTranscriptFromUrl когда будет доступ к Bluedot
-    const transcript = `[Transcript from Bluedot: ${candidate.managerCallTranscriptUrl}]`;
+    // Реальный фетч транскрипции
+    let transcript = '';
+    if (candidate.managerCallTranscriptUrl) {
+      try {
+        transcript = await fetchTranscript(candidate.managerCallTranscriptUrl);
+      } catch (err) {
+        fastify.log.warn(
+          { err },
+          `Failed to fetch manager call transcript: ${candidate.managerCallTranscriptUrl}`
+        );
+        transcript = `[Transcript unavailable: ${candidate.managerCallTranscriptUrl}]`;
+      }
+    }
 
     await analyzeQueue.add('analyze', {
       transcript,
@@ -210,17 +216,26 @@ async function triggerTechCall(
   fastify: FastifyInstance
 ) {
   try {
-    const cvText = candidate.cvUrl
-      ? await extractCVText(candidate.cvUrl)
-      : '';
+    const cvText = candidate.cvUrl ? await extractCVText(candidate.cvUrl) : '';
 
     const [level, candidateName] = await Promise.all([
       detectLevelFromCV(cvText),
       extractNameFromCV(cvText),
     ]);
 
-    // TODO: заменить на fetchTranscriptFromUrl когда будет доступ к Bluedot
-    const transcript = `[Transcript from Bluedot: ${candidate.technicalCallTranscriptUrl}]`;
+    // Реальный фетч транскрипции
+    let transcript = '';
+    if (candidate.technicalCallTranscriptUrl) {
+      try {
+        transcript = await fetchTranscript(candidate.technicalCallTranscriptUrl);
+      } catch (err) {
+        fastify.log.warn(
+          { err },
+          `Failed to fetch tech call transcript: ${candidate.technicalCallTranscriptUrl}`
+        );
+        transcript = `[Transcript unavailable: ${candidate.technicalCallTranscriptUrl}]`;
+      }
+    }
 
     await analyzeQueue.add('analyze', {
       transcript,

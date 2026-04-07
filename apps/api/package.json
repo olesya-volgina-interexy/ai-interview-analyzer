@@ -21,6 +21,7 @@
     "ioredis": "^5.4.1",
     "openai": "^4.52.0",
     "pdf-parse": "^1.1.1",
+    "puppeteer": "^24.40.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {

@@ -9,16 +9,20 @@ const RECOMMENDATION_STYLE: Record<string, string> = {
   passed:       'bg-blue-100 text-blue-800',
   rejected:     'bg-red-100 text-red-800',
   on_hold:      'bg-slate-100 text-slate-600',
+  hired:        'bg-green-100 text-green-800',
 };
 
 const STAGE_LABEL: Record<string, string> = {
   manager_call: 'Manager Call',
   technical:    'Technical',
+  final_result: 'Final Result',
 };
 
 function getRecommendation(item: InterviewListItem): string {
   const a = item.analysis as any;
-  return a?.recommendation ?? a?.stageResult ?? '—';
+  if (item.stage === 'manager_call') return a?.stageResult ?? '—';
+  if (item.stage === 'technical')    return a?.recommendation ?? '—';
+  return a?.decision ?? '—';
 }
 
 function formatDate(iso: string) {
@@ -54,17 +58,17 @@ export function InterviewsTable({ data, isLoading, onRowClick }: InterviewsTable
   }
 
   return (
-    <div className="rounded-md border overflow-hidden overflow-x-auto">
-      <table className="w-full text-sm min-w-[640px]">
+    <div className="rounded-md border overflow-hidden">
+      <table className="w-full text-sm table-fixed">
         <thead className="bg-slate-50 border-b">
           <tr>
-            <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Date</th>
-            <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Candidate</th>
-            <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Role</th>
-            <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Client</th>
-            <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Stage</th>
-            <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">AI Result</th>
-            <th className="text-left px-4 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide">Score</th>
+            <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[11%]">Date</th>
+            <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[20%]">Candidate</th>
+            <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[18%]">Role</th>
+            <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[16%]">Client</th>
+            <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[14%]">Stage</th>
+            <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[13%]">AI Result</th>
+            <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[8%]">Score</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -78,31 +82,31 @@ export function InterviewsTable({ data, isLoading, onRowClick }: InterviewsTable
                 onClick={() => onRowClick(item.id)}
                 className="hover:bg-slate-50 cursor-pointer transition-colors"
               >
-                <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                <td className="px-3 py-3 text-slate-500 whitespace-nowrap">
                   {formatDate(item.createdAt)}
                 </td>
-                <td className="px-4 py-3 font-medium text-slate-900">
+                <td className="px-3 py-3 font-medium text-slate-900 truncate max-w-0">
                   {item.candidateName ?? '—'}
                 </td>
-                <td className="px-4 py-3 text-slate-600">
+                <td className="px-3 py-3 text-slate-600 truncate">
                   {item.role} <span className="text-slate-400">{item.level}</span>
                 </td>
-                <td className="px-4 py-3 text-slate-600">
+                <td className="px-3 py-3 text-slate-600 truncate">
                   {item.clientName ?? '—'}
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-3 py-3">
                   <span className="text-xs text-slate-500">
                     {STAGE_LABEL[item.stage] ?? item.stage}
                   </span>
                 </td>
-                <td className="px-4 py-3">
+                <td className="px-3 py-3">
                   {rec !== '—' ? (
-                    <Badge className={RECOMMENDATION_STYLE[rec] ?? 'bg-slate-100 text-slate-600'}>
+                    <Badge className={`${RECOMMENDATION_STYLE[rec] ?? 'bg-slate-100 text-slate-600'} whitespace-nowrap`}>
                       {rec.replace('_', ' ')}
                     </Badge>
                   ) : '—'}
                 </td>
-                <td className="px-4 py-3 text-slate-600">
+                <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
                   {score !== undefined ? `${score}/100` : '—'}
                 </td>
               </tr>
