@@ -27,6 +27,7 @@ model Interview {
   embeddingId   String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  @@index([linearIssueId, parentCommentId, stage])
 }
 
 model Client {

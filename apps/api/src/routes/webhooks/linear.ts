@@ -9,8 +9,9 @@ import {
   findCandidatesForFinalResult,
   type CandidateThread,
 } from '../../services/linear.parser';
-import { extractCVText, detectLevelFromCV } from '../../services/cv.service';
+import { extractCVText, detectLevelFromCV, extractNameFromCV } from '../../services/cv.service';
 import { analyzeQueue } from '../../workers/analyze.worker';
+import { getExistingAnalysesForIssue } from '../../db/db.service';
 
 const STATUS_BROKERS_CALL = "Broker's Call";
 const STATUS_TECH_CALL = 'Tech Call';
@@ -54,6 +55,9 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
 
         fastify.log.info(`Linear: new comment in issue ${issueId}`);
 
+        // Получаем существующие анализы ОДИН РАЗ для всего тикета
+        const existingAnalyses = await getExistingAnalysesForIssue(issueId);
+
         // Manager call — появился фидбек или транскрипция
         if (
           commentBody.includes('#feedback_manager_call') ||
@@ -62,9 +66,22 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
           const parsed = await parseIssue(issueId);
           if (parsed.status === STATUS_BROKERS_CALL) {
             const candidates = findCandidatesForManagerCall(parsed.candidates);
-            fastify.log.info(`Manager call candidates ready: ${candidates.length}`);
+            
+            // Фильтруем кандидатов у которых ещё нет анализа
+            const candidatesToAnalyze = candidates.filter(c => {
+              const existingStages = existingAnalyses.get(c.rootCommentId);
+              const alreadyAnalyzed = existingStages?.has('manager_call') ?? false;
+              
+              if (alreadyAnalyzed) {
+                fastify.log.info(`Skipping manager_call for ${c.rootCommentId} — already analyzed`);
+              }
+              return !alreadyAnalyzed;
+            });
+
+            fastify.log.info(`Manager call candidates: ${candidates.length} total, ${candidatesToAnalyze.length} to analyze`);
+
             await Promise.all(
-              candidates.map(c => triggerManagerCall(issueId, parsed, c, fastify))
+              candidatesToAnalyze.map(c => triggerManagerCall(issueId, parsed, c, fastify))
             );
           }
         }
@@ -74,9 +91,22 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
           const parsed = await parseIssue(issueId);
           if (parsed.status === STATUS_TECH_CALL) {
             const candidates = findCandidatesForTechCall(parsed.candidates);
-            fastify.log.info(`Tech call candidates ready: ${candidates.length}`);
+            
+            // Фильтруем кандидатов у которых ещё нет анализа
+            const candidatesToAnalyze = candidates.filter(c => {
+              const existingStages = existingAnalyses.get(c.rootCommentId);
+              const alreadyAnalyzed = existingStages?.has('technical') ?? false;
+              
+              if (alreadyAnalyzed) {
+                fastify.log.info(`Skipping technical for ${c.rootCommentId} — already analyzed`);
+              }
+              return !alreadyAnalyzed;
+            });
+
+            fastify.log.info(`Tech call candidates: ${candidates.length} total, ${candidatesToAnalyze.length} to analyze`);
+
             await Promise.all(
-              candidates.map(c => triggerTechCall(issueId, parsed, c, fastify))
+              candidatesToAnalyze.map(c => triggerTechCall(issueId, parsed, c, fastify))
             );
           }
         }
@@ -91,15 +121,30 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
 
         fastify.log.info(`Linear: issue ${issueId} → "${newStatus}"`);
 
+        // Получаем существующие анализы
+        const existingAnalyses = await getExistingAnalysesForIssue(issueId);
         const parsed = await parseIssue(issueId);
 
         // Hired / Lost — финальный анализ
         if (newStatus === STATUS_HIRED || newStatus === STATUS_LOST) {
           const decision = newStatus === STATUS_HIRED ? 'hired' : 'lost';
           const candidates = findCandidatesForFinalResult(parsed.candidates, decision);
-          fastify.log.info(`Final result candidates (${decision}): ${candidates.length}`);
+          
+          // Фильтруем кандидатов у которых ещё нет финального анализа
+          const candidatesToAnalyze = candidates.filter(c => {
+            const existingStages = existingAnalyses.get(c.rootCommentId);
+            const alreadyAnalyzed = existingStages?.has('final_result') ?? false;
+            
+            if (alreadyAnalyzed) {
+              fastify.log.info(`Skipping final_result for ${c.rootCommentId} — already analyzed`);
+            }
+            return !alreadyAnalyzed;
+          });
+
+          fastify.log.info(`Final result candidates (${decision}): ${candidates.length} total, ${candidatesToAnalyze.length} to analyze`);
+
           await Promise.all(
-            candidates.map(c => triggerFinalResult(issueId, parsed, c, decision, fastify))
+            candidatesToAnalyze.map(c => triggerFinalResult(issueId, parsed, c, decision, fastify))
           );
         }
       }
@@ -125,7 +170,10 @@ async function triggerManagerCall(
       ? await extractCVText(candidate.cvUrl)
       : '';
 
-    const level = await detectLevelFromCV(cvText);
+    const [level, candidateName] = await Promise.all([
+      detectLevelFromCV(cvText),
+      extractNameFromCV(cvText),
+    ]);
 
     // TODO: заменить на fetchTranscriptFromUrl когда будет доступ к Bluedot
     const transcript = `[Transcript from Bluedot: ${candidate.managerCallTranscriptUrl}]`;
@@ -137,6 +185,7 @@ async function triggerManagerCall(
         role: parsed.role,
         level,
         clientName: parsed.clientName ?? undefined,
+        candidateName: candidateName ?? undefined,
         linearIssueId: issueId,
         cvUrl: candidate.cvUrl ?? undefined,
       },
@@ -165,7 +214,10 @@ async function triggerTechCall(
       ? await extractCVText(candidate.cvUrl)
       : '';
 
-    const level = await detectLevelFromCV(cvText);
+    const [level, candidateName] = await Promise.all([
+      detectLevelFromCV(cvText),
+      extractNameFromCV(cvText),
+    ]);
 
     // TODO: заменить на fetchTranscriptFromUrl когда будет доступ к Bluedot
     const transcript = `[Transcript from Bluedot: ${candidate.technicalCallTranscriptUrl}]`;
@@ -177,6 +229,7 @@ async function triggerTechCall(
         role: parsed.role,
         level,
         clientName: parsed.clientName ?? undefined,
+        candidateName: candidateName ?? undefined,
         linearIssueId: issueId,
         cvUrl: candidate.cvUrl ?? undefined,
       },

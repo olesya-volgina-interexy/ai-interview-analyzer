@@ -40,9 +40,49 @@ export async function extractCVText(cvUrl: string): Promise<string> {
       .trim();
 
     return text.slice(0, 5000);
-  } catch (err) {
-    console.warn(`Failed to fetch CV: ${cvUrl}`, err);
+  } catch (err: any) {
+    // Чистый вывод ошибки без огромного стектрейса
+    const status = err.response?.status;
+    const code = err.code;
+    
+    if (status === 404) {
+      console.warn(`CV not found (404): ${cvUrl}`);
+    } else if (status === 403) {
+      console.warn(`CV access forbidden (403): ${cvUrl}`);
+    } else if (code === 'ECONNREFUSED' || code === 'ETIMEDOUT') {
+      console.warn(`CV fetch timeout/connection error: ${cvUrl}`);
+    } else {
+      console.warn(`CV fetch failed: ${cvUrl} — ${err.message || err}`);
+    }
+    
     return '';
+  }
+}
+
+// Извлечь имя кандидата из текста CV через LLM
+export async function extractNameFromCV(cvText: string): Promise<string | null> {
+  if (!cvText) return null;
+
+  try {
+    const response = await llmClient.chat.completions.create({
+      model: LLM_MODEL,
+      messages: [{
+        role: 'user',
+        content: `Extract the candidate's full name from this CV.
+Return ONLY the full name (e.g. "John Smith"). If the name cannot be determined, return "null".
+
+CV:
+${cvText.slice(0, 2000)}`,
+      }],
+      max_tokens: 20,
+      temperature: 0,
+    });
+
+    const name = response.choices[0].message.content?.trim();
+    if (!name || name === 'null') return null;
+    return name;
+  } catch {
+    return null;
   }
 }
 

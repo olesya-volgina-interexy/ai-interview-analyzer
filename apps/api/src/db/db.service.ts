@@ -116,3 +116,50 @@ export async function getInterviewsByLinearIssueId(
     },
   });
 }
+
+// Проверить существует ли анализ для кандидата
+export async function hasExistingAnalysis(
+  linearIssueId: string,
+  parentCommentId: string,
+  stage: string
+): Promise<boolean> {
+  const existing = await prisma.interview.findFirst({
+    where: {
+      linearIssueId,
+      parentCommentId,
+      stage,
+    },
+    select: { id: true },
+  });
+
+  return existing !== null;
+}
+
+/**
+ * Получает все существующие анализы для тикета (batch проверка)
+ * @returns Map: parentCommentId -> Set of stages
+ */
+export async function getExistingAnalysesForIssue(
+  linearIssueId: string
+): Promise<Map<string, Set<string>>> {
+  const analyses = await prisma.interview.findMany({
+    where: { linearIssueId },
+    select: {
+      parentCommentId: true,
+      stage: true,
+    },
+  });
+
+  const result = new Map<string, Set<string>>();
+
+  for (const analysis of analyses) {
+    if (!analysis.parentCommentId) continue;
+
+    if (!result.has(analysis.parentCommentId)) {
+      result.set(analysis.parentCommentId, new Set());
+    }
+    result.get(analysis.parentCommentId)!.add(analysis.stage);
+  }
+
+  return result;
+}

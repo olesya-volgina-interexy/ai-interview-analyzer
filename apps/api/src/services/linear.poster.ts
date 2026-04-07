@@ -1,7 +1,43 @@
-// apps/api/src/services/linear.poster.ts
-
 import { postReply } from './linear.service';
 import type { ManagerCallAnalysis, TechnicalAnalysis } from '@shared/schemas';
+
+
+async function postReplyWithRetry(
+  issueId: string,
+  parentCommentId: string,
+  body: string,
+  maxRetries = 3
+): Promise<void> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await postReply(issueId, parentCommentId, body);
+      return;
+    } catch (err: any) {
+      lastError = err;
+      
+      const isRetriable = 
+        err.message?.includes('fetch failed') ||
+        err.message?.includes('ETIMEDOUT') ||
+        err.message?.includes('ECONNRESET') ||
+        err.type === 'Unknown' ||
+        err.status === 429 ||
+        err.status >= 500;
+
+      if (!isRetriable || attempt === maxRetries) {
+        throw err;
+      }
+
+      const delay = Math.pow(2, attempt - 1) * 1000;
+      console.warn(`Linear API failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`);
+      
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
 
 // ── Постинг анализа менеджер-колла ────────────────────────────────────────
 
@@ -57,7 +93,7 @@ ${analysis.reasoning}
 ${analysis.recommendation}
 `.trim();
 
-  await postReply(issueId, parentCommentId, body);
+  await postReplyWithRetry(issueId, parentCommentId, body);
 }
 
 // ── Постинг технического анализа ──────────────────────────────────────────
@@ -120,7 +156,7 @@ ${analysis.reasoning}
 ${analysis.roleFitSummary}
 `.trim();
 
-  await postReply(issueId, parentCommentId, body);
+  await postReplyWithRetry(issueId, parentCommentId, body);
 }
 
 // ── Постинг финального анализа ────────────────────────────────────────────
@@ -166,5 +202,5 @@ ${analysis.weaknesses.map((w: string) => `- ${w}`).join('\n')}
 ${analysis.recommendation}
 `.trim();
 
-  await postReply(issueId, parentCommentId, body);
+  await postReplyWithRetry(issueId, parentCommentId, body);
 }

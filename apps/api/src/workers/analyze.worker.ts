@@ -3,7 +3,7 @@ import IORedis from 'ioredis';
 import { embedText, buildEmbeddingText } from '../services/embedding.service';
 import { findSimilarInterviews, saveEmbedding } from '../services/rag.service';
 import { analyzeInterview, analyzeFinalResult } from '../services/llm.service';
-import { extractCVText, detectLevelFromCV } from '../services/cv.service';
+import { extractCVText, detectLevelFromCV, extractNameFromCV } from '../services/cv.service';
 import {
   createInterview,
   getInterviewsByIds,
@@ -98,6 +98,10 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
     let cvText = job.data.cvText;
     if (!cvText && meta.cvUrl) {
       cvText = await extractCVText(meta.cvUrl);
+    }
+    if (cvText && !meta.candidateName) {
+      const extractedName = await extractNameFromCV(cvText);
+      if (extractedName) meta.candidateName = extractedName;
     }
 
     // Добавляем фидбек менеджера к транскрипции если есть
