@@ -114,3 +114,32 @@ ${cvText.slice(0, 3000)}`,
     return 'Middle';
   }
 }
+
+// Извлечь имя кандидата из транскрипции через LLM
+export async function extractNameFromTranscript(transcript: string): Promise<string | null> {
+  if (!transcript) return null;
+
+  try {
+    const response = await llmClient.chat.completions.create({
+      model: LLM_MODEL,
+      messages: [{
+        role: 'user',
+        content: `Extract the candidate's full name from this interview transcript.
+The candidate is the interviewee, not the interviewer.
+Look for speaker labels like "Candidate:", "Applicant:", or names mentioned in introduction.
+Return ONLY the full name (e.g. "John Smith"). If the name cannot be determined, return "null".
+
+Transcript (first 2000 chars):
+${transcript.slice(0, 2000)}`,
+      }],
+      max_tokens: 20,
+      temperature: 0,
+    });
+
+    const name = response.choices[0].message.content?.trim();
+    if (!name || name === 'null') return null;
+    return name;
+  } catch {
+    return null;
+  }
+}

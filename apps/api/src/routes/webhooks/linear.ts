@@ -7,7 +7,7 @@ import {
   findCandidatesForFinalResult,
   type CandidateThread,
 } from '../../services/linear.parser';
-import { extractCVText, detectLevelFromCV, extractNameFromCV } from '../../services/cv.service';
+import { extractCVText, detectLevelFromCV, extractNameFromCV, extractNameFromTranscript  } from '../../services/cv.service';
 import { analyzeQueue } from '../../workers/analyze.worker';
 import { getExistingAnalysesForIssue } from '../../db/db.service';
 import { fetchTranscript } from '../../services/bluedot.service';
@@ -166,10 +166,11 @@ async function triggerManagerCall(
   try {
     const cvText = candidate.cvUrl ? await extractCVText(candidate.cvUrl) : '';
 
-    const [level, candidateName] = await Promise.all([
+    const [level, nameFromCV] = await Promise.all([
       detectLevelFromCV(cvText),
       extractNameFromCV(cvText),
     ]);
+    const candidateName = nameFromCV ?? await extractNameFromTranscript(cvText);
 
     // Реальный фетч транскрипции
     let transcript = '';
@@ -219,10 +220,11 @@ async function triggerTechCall(
   try {
     const cvText = candidate.cvUrl ? await extractCVText(candidate.cvUrl) : '';
 
-    const [level, candidateName] = await Promise.all([
+    const [level, nameFromCV] = await Promise.all([
       detectLevelFromCV(cvText),
       extractNameFromCV(cvText),
     ]);
+    const candidateName = nameFromCV ?? await extractNameFromTranscript(cvText);
 
     // Реальный фетч транскрипции
     let transcript = '';
