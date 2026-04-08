@@ -5,6 +5,7 @@ import pdfParse from 'pdf-parse';
 import puppeteer from 'puppeteer';
 
 const BLUEDOT_PREVIEW_RE = /bluedothq\.com\/preview\//i;
+const LINEAR_UPLOAD_RE = /uploads\.linear\.app\//i;
 
 // ── Главная функция ───────────────────────────────────────────────────────
 
@@ -13,6 +14,10 @@ export async function fetchTranscript(urlOrPdf: string): Promise<string> {
 
   if (isPdfUrl(url)) {
     return fetchPdfTranscript(url);
+  }
+
+  if (isTextFile(url) || LINEAR_UPLOAD_RE.test(url)) {
+    return fetchRawText(url, LINEAR_UPLOAD_RE.test(url));
   }
 
   if (BLUEDOT_PREVIEW_RE.test(url)) {
@@ -127,8 +132,14 @@ async function fetchPdfTranscript(url: string): Promise<string> {
 
 // ── Fallback ──────────────────────────────────────────────────────────────
 
-async function fetchRawText(url: string): Promise<string> {
-  const res = await axios.get(url, { timeout: 30_000 });
+async function fetchRawText(url: string, withLinearAuth = false): Promise<string> {
+  const headers: Record<string, string> = {};
+
+  if (withLinearAuth && process.env.LINEAR_API_KEY) {
+    headers['Authorization'] = process.env.LINEAR_API_KEY;
+  }
+
+  const res = await axios.get(url, { timeout: 30_000, headers });
   return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
 }
 
@@ -137,4 +148,8 @@ async function fetchRawText(url: string): Promise<string> {
 
 function isPdfUrl(url: string): boolean {
   return /\.pdf(\?.*)?$/i.test(url) || url.includes('application/pdf');
+}
+
+function isTextFile(url: string): boolean {
+  return /\.(txt|docx?)(\?.*)?$/i.test(url);
 }

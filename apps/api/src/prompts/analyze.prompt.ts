@@ -14,6 +14,7 @@ MANDATORY RULES:
 5. If stageResult is "rejected" — decisionBreakers must contain specific reasons from the transcript.
 6. If stageResult is "on_hold" — explain the external reason (client stopped responding, position frozen, etc.).
 7. Never invent positive qualities to balance out negatives — only report what is actually evidenced.
+8. ALWAYS respond in English regardless of the language of the transcript, CV, or broker request.
 
 ${hasDecision ? `
 DECISION JUSTIFICATION (critical task):
@@ -82,6 +83,7 @@ MANDATORY RULES:
 6. If recommendation is "hire" — confirm with concrete examples from the transcript. Do not over-praise.
 7. Compare candidate answers to CV — identify confirmed and unconfirmed skills.
 8. Compare candidate skills to broker requirements — clearly identify gaps.
+9. ALWAYS respond in English regardless of the language of the transcript, CV, or broker request.
 
 ${hasDecision ? `
 DECISION JUSTIFICATION (critical task):
@@ -247,7 +249,7 @@ Return JSON strictly following this schema:
 {
   "stage": "technical",
   "overallAssessment": "string — 2-3 sentences",
-  "technicalLevel": "Junior | Middle | Senior",
+  "technicalLevel": "Junior | Middle | Senior | uncertain (only if transcript is unavailable)",
   "strengths": ["string — with specific evidence from transcript"],
   "weaknesses": ["string — with specific evidence from transcript"],
   "risks": ["string"],

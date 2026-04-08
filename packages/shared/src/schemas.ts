@@ -64,7 +64,7 @@ export const BrokerRequestMatchSchema = z.object({
 export const TechnicalAnalysisSchema = z.object({
   stage: z.literal('technical'),
   overallAssessment: z.string(),
-  technicalLevel: z.enum(['Junior', 'Middle', 'Senior']),
+  technicalLevel: z.enum(['Junior', 'Middle', 'Senior', 'uncertain']),
   strengths: z.array(z.string()),
   weaknesses: z.array(z.string()),
   risks: z.array(z.string()),

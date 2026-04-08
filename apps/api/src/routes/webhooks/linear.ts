@@ -48,6 +48,7 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
       // ── Триггер на новый комментарий ────────────────────────────────────
       if (type === 'Comment' && action === 'create') {
         const commentBody = data.body ?? '';
+        fastify.log.info({ commentData: JSON.stringify(data, null, 2) }, 'RAW COMMENT PAYLOAD');
         const issueId = data.issue?.id;
 
         if (!issueId) return reply.status(200).send({ ok: true });

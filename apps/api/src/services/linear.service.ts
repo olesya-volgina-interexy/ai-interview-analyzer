@@ -141,3 +141,10 @@ export function extractFeedbackText(body: string): string {
     .replace(/\(<>\)/g, '')
     .trim();
 }
+
+
+// Извлечь URL вложения из Linear Markdown формата [filename](url)
+export function extractAttachmentUrl(body: string): string | null {
+  const match = body.match(/\[([^\]]+\.(txt|pdf|docx?))\]\((https?:\/\/[^)]+)\)/i);
+  return match ? match[3] : null;
+}

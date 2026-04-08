@@ -5,6 +5,7 @@ import {
   getIssueComments,
   extractUrl,
   extractFeedbackText,
+  extractAttachmentUrl,
   type LinearComment,
   type LinearIssueData,
 } from './linear.service';
@@ -72,10 +73,8 @@ function parseCandidateThread(
   root: LinearComment,
   replies: LinearComment[]
 ): CandidateThread {
-  // CV — из root комментария
   const cvUrl = extractCVUrl(root.body);
 
-  // Ищем нужные типы среди replies
   const managerTranscriptReply = replies.find(r =>
     r.body.includes('#manager_call_transcript')
   );
@@ -91,14 +90,15 @@ function parseCandidateThread(
   return {
     rootCommentId: root.id,
     cvUrl,
+    // Сначала ищем вложение (файл), потом обычную ссылку
     managerCallTranscriptUrl: managerTranscriptReply
-      ? extractUrl(managerTranscriptReply.body)
+      ? (extractAttachmentUrl(managerTranscriptReply.body) ?? extractUrl(managerTranscriptReply.body))
       : null,
     managerFeedback: feedbackReply
       ? extractFeedbackText(feedbackReply.body)
       : null,
     technicalCallTranscriptUrl: techTranscriptReply
-      ? extractUrl(techTranscriptReply.body)
+      ? (extractAttachmentUrl(techTranscriptReply.body) ?? extractUrl(techTranscriptReply.body))
       : null,
     finalDecision: hiredReply ? 'hired' : lostReply ? 'lost' : null,
   };
