@@ -50,7 +50,8 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
         : [];
 
       if (previousAnalyses.length === 0) {
-        console.warn(`No previous analyses found for issue ${meta.linearIssueId}`);
+        console.warn(`No previous analyses found for issue ${meta.linearIssueId} - skipping final result analysis`);
+        return; // Прерываем выполнение если нет предыдущих анализов
       }
 
       const previousContext = previousAnalyses
