@@ -8,58 +8,116 @@ import axios from 'axios';
 import pdfParse from 'pdf-parse';
 import { llmClient, LLM_MODEL } from './llm.client';
 
-// Скачать и распарсить CV по ссылке
+// Константы для определения типа ссылки
+const LINEAR_UPLOAD_RE = /uploads\.linear\.app\//i;
+
+// ── Главная функция извлечения текста ──────────────────────────────────
+
 export async function extractCVText(cvUrl: string): Promise<string> {
+  const url = cvUrl.trim();
+  if (!url) return '';
+
   try {
-    const response = await axios.get(cvUrl, {
-      responseType: 'arraybuffer',
-      timeout: 15000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      },
-    });
-
-    const contentType = String(response.headers['content-type'] ?? '');
-    const raw = Buffer.from(response.data).toString('utf-8');
-
-    if (contentType.includes('pdf')) {
-      const parsed = await pdfParse(Buffer.from(response.data));
-      return parsed.text.slice(0, 5000);
+    // 1. Если это PDF (по расширению)
+    if (isPdfUrl(url)) {
+      return await fetchPdfContent(url);
     }
 
-    // HTML — убираем теги и скрипты
-    const text = raw
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/\s+/g, ' ')
-      .trim();
+    // 2. Если это текстовый файл или вложение Linear
+    if (isTextFile(url) || LINEAR_UPLOAD_RE.test(url)) {
+      return await fetchRawTextContent(url, LINEAR_UPLOAD_RE.test(url));
+    }
 
-    return text.slice(0, 5000);
+    // 3. Для всех остальных ссылок (включая VisualCV и обычные веб-страницы)
+    return await fetchGenericWebContent(url);
   } catch (err: any) {
-    // Чистый вывод ошибки без огромного стектрейса
-    const status = err.response?.status;
-    const code = err.code;
-    
-    if (status === 404) {
-      console.warn(`CV not found (404): ${cvUrl}`);
-    } else if (status === 403) {
-      console.warn(`CV access forbidden (403): ${cvUrl}`);
-    } else if (code === 'ECONNREFUSED' || code === 'ETIMEDOUT') {
-      console.warn(`CV fetch timeout/connection error: ${cvUrl}`);
-    } else {
-      console.warn(`CV fetch failed: ${cvUrl} — ${err.message || err}`);
-    }
-    
+    logError(url, err);
     return '';
   }
 }
 
-// Извлечь имя кандидата из текста CV через LLM
+// ── Приватные методы загрузки и парсинга ────────────────────────────────
+
+async function fetchPdfContent(url: string): Promise<string> {
+  const res = await axios.get(url, {
+    responseType: 'arraybuffer',
+    timeout: 30_000,
+    headers: { 'User-Agent': 'Mozilla/5.0' },
+  });
+
+  const parsed = await pdfParse(Buffer.from(res.data));
+  const text = parsed.text.trim();
+
+  if (!text) throw new Error(`PDF content is empty`);
+  return text.slice(0, 7000);
+}
+
+async function fetchRawTextContent(url: string, withLinearAuth = false): Promise<string> {
+  const headers: Record<string, string> = { 'User-Agent': 'Mozilla/5.0' };
+
+  if (withLinearAuth && process.env.LINEAR_API_KEY) {
+    headers['Authorization'] = process.env.LINEAR_API_KEY;
+  }
+
+  const res = await axios.get(url, { timeout: 20_000, headers });
+  
+  // Если пришли данные не в строке (например, JSON), приводим к строке
+  const text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+  return text.slice(0, 7000);
+}
+
+async function fetchGenericWebContent(url: string): Promise<string> {
+  const response = await axios.get(url, {
+    responseType: 'arraybuffer',
+    timeout: 20_000,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    },
+  });
+
+  const contentType = String(response.headers['content-type'] ?? '');
+  const buffer = Buffer.from(response.data);
+
+  // Если по ссылке без расширения .pdf всё равно пришел PDF
+  if (contentType.includes('application/pdf')) {
+    const parsed = await pdfParse(buffer);
+    return parsed.text.slice(0, 7000);
+  }
+
+  // Обработка как HTML (ваша текущая рабочая логика для VisualCV)
+  const raw = buffer.toString('utf-8');
+  const text = raw
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // удаляем скрипты
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')   // удаляем стили
+    .replace(/<[^>]+>/g, ' ')                         // удаляем теги
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ')                             // схлопываем пробелы
+    .trim();
+
+  return text.slice(0, 7000);
+}
+
+// ── Утилиты ───────────────────────────────────────────────────────────────
+
+function isPdfUrl(url: string): boolean {
+  return /\.pdf(\?.*)?$/i.test(url);
+}
+
+function isTextFile(url: string): boolean {
+  return /\.(txt|rtf)(\?.*)?$/i.test(url);
+}
+
+function logError(url: string, err: any) {
+  const status = err.response?.status;
+  const message = err.message || err;
+  console.warn(`CV fetch failed: ${url} — Status: ${status || 'N/A'} — ${message}`);
+}
+
+// ── Функции извлечения данных через LLM ───────────────────────────────────
+
 export async function extractNameFromCV(cvText: string): Promise<string | null> {
   if (!cvText) return null;
 
@@ -72,7 +130,7 @@ export async function extractNameFromCV(cvText: string): Promise<string | null> 
 Return ONLY the full name (e.g. "John Smith"). If the name cannot be determined, return "null".
 
 CV:
-${cvText.slice(0, 2000)}`,
+${cvText.slice(0, 2500)}`,
       }],
       max_tokens: 20,
       temperature: 0,
@@ -86,7 +144,6 @@ ${cvText.slice(0, 2000)}`,
   }
 }
 
-// Определить уровень кандидата из текста CV через LLM
 export async function detectLevelFromCV(
   cvText: string
 ): Promise<'Junior' | 'Middle' | 'Senior'> {
@@ -101,7 +158,7 @@ export async function detectLevelFromCV(
 Return ONLY one word: Junior, Middle, or Senior. Nothing else.
 
 CV:
-${cvText.slice(0, 3000)}`,
+${cvText.slice(0, 3500)}`,
       }],
       max_tokens: 10,
       temperature: 0,
@@ -115,7 +172,6 @@ ${cvText.slice(0, 3000)}`,
   }
 }
 
-// Извлечь имя кандидата из транскрипции через LLM
 export async function extractNameFromTranscript(transcript: string): Promise<string | null> {
   if (!transcript) return null;
 
@@ -126,8 +182,7 @@ export async function extractNameFromTranscript(transcript: string): Promise<str
         role: 'user',
         content: `Extract the candidate's full name from this interview transcript.
 The candidate is the interviewee, not the interviewer.
-Look for speaker labels like "Candidate:", "Applicant:", or names mentioned in introduction.
-Return ONLY the full name (e.g. "John Smith"). If the name cannot be determined, return "null".
+Return ONLY the full name (e.g. "John Smith", "John S"). If the name cannot be determined, return "null".
 
 Transcript (first 2000 chars):
 ${transcript.slice(0, 2000)}`,

@@ -166,12 +166,6 @@ async function triggerManagerCall(
   try {
     const cvText = candidate.cvUrl ? await extractCVText(candidate.cvUrl) : '';
 
-    const [level, nameFromCV] = await Promise.all([
-      detectLevelFromCV(cvText),
-      extractNameFromCV(cvText),
-    ]);
-    const candidateName = nameFromCV ?? await extractNameFromTranscript(cvText);
-
     // Реальный фетч транскрипции
     let transcript = '';
     if (candidate.managerCallTranscriptUrl) {
@@ -185,6 +179,12 @@ async function triggerManagerCall(
         transcript = `[Transcript unavailable: ${candidate.managerCallTranscriptUrl}]`;
       }
     }
+
+    const [level, nameFromCV] = await Promise.all([
+      detectLevelFromCV(cvText),
+      extractNameFromCV(cvText),
+    ]);
+    const candidateName = nameFromCV ? nameFromCV : await extractNameFromTranscript(transcript);
 
     await analyzeQueue.add('analyze', {
       transcript,
@@ -220,12 +220,6 @@ async function triggerTechCall(
   try {
     const cvText = candidate.cvUrl ? await extractCVText(candidate.cvUrl) : '';
 
-    const [level, nameFromCV] = await Promise.all([
-      detectLevelFromCV(cvText),
-      extractNameFromCV(cvText),
-    ]);
-    const candidateName = nameFromCV ?? await extractNameFromTranscript(cvText);
-
     // Реальный фетч транскрипции
     let transcript = '';
     if (candidate.technicalCallTranscriptUrl) {
@@ -239,6 +233,12 @@ async function triggerTechCall(
         transcript = `[Transcript unavailable: ${candidate.technicalCallTranscriptUrl}]`;
       }
     }
+
+    const [level, nameFromCV] = await Promise.all([
+      detectLevelFromCV(cvText),
+      extractNameFromCV(cvText),
+    ]);
+    const candidateName = nameFromCV ?? await extractNameFromTranscript(transcript);
 
     await analyzeQueue.add('analyze', {
       transcript,
