@@ -5,7 +5,7 @@ interface Props {
 }
 
 export function BrokerMatchBlock({ brokerMatch }: Props) {
-  const { coveredRequirements, missingRequirements, brokerMatchScore, brokerFitSummary } = brokerMatch;
+  const { coveredRequirements, missingRequirements, notAssessedRequirements, brokerMatchScore, brokerFitSummary } = brokerMatch;
 
   const barColor =
     brokerMatchScore >= 70 ? '#639922' :
@@ -52,6 +52,19 @@ export function BrokerMatchBlock({ brokerMatch }: Props) {
           <div className="flex flex-wrap gap-1.5">
             {missingRequirements.map(req => (
               <span key={req} className="text-xs px-2 py-0.5 rounded bg-red-50 text-red-800 border border-red-200">
+                {req}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {notAssessedRequirements && notAssessedRequirements.length > 0 && (
+        <div className="mb-3">
+          <p className="text-[11px] font-medium text-slate-400 uppercase tracking-wide mb-1.5">Not Assessed</p>
+          <div className="flex flex-wrap gap-1.5">
+            {notAssessedRequirements.map(req => (
+              <span key={req} className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-500 border border-slate-200">
                 {req}
               </span>
             ))}

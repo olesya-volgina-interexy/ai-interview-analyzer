@@ -46,18 +46,19 @@ export const ManagerCallAnalysisSchema = z.object({
 });
 
 export const CVMatchSchema = z.object({
-  declaredSkills: z.array(z.string()),
-  confirmedSkills: z.array(z.string()),
-  unconfirmedSkills: z.array(z.string()),
+  declaredSkills: z.array(z.string()),    // ALL skills from CV (complete list)
+  confirmedSkills: z.array(z.string()),   // tested AND demonstrated in interview
+  unconfirmedSkills: z.array(z.string()), // tested but NOT demonstrated (penalises score)
   discrepancies: z.array(z.string()),
-  cvMatchScore: z.number().min(0).max(100),
+  cvMatchScore: z.number().min(0).max(100), // based only on tested skills
 });
 
 export const BrokerRequestMatchSchema = z.object({
   requiredSkills: z.array(z.string()),
   coveredRequirements: z.array(z.string()),
-  missingRequirements: z.array(z.string()),
-  brokerMatchScore: z.number().min(0).max(100),
+  missingRequirements: z.array(z.string()),                        // tested but NOT demonstrated (penalises score)
+  notAssessedRequirements: z.array(z.string()).optional(),         // in broker request but NOT covered in interview (neutral)
+  brokerMatchScore: z.number().min(0).max(100),   // based only on tested requirements
   brokerFitSummary: z.string(),
 });
 

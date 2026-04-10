@@ -123,14 +123,16 @@ ${analysis.overallAssessment}
 
 ### 📄 CV Match — ${analysis.cvMatch.cvMatchScore}%
 - **Confirmed:** ${analysis.cvMatch.confirmedSkills.join(', ') || '—'}
-- **Unconfirmed:** ${analysis.cvMatch.unconfirmedSkills.join(', ') || '—'}
+- **Failed (tested):** ${analysis.cvMatch.unconfirmedSkills.join(', ') || '—'}
+- **Declared (not assessed):** ${analysis.cvMatch.declaredSkills.filter(s => !analysis.cvMatch.confirmedSkills.includes(s) && !analysis.cvMatch.unconfirmedSkills.includes(s)).join(', ') || '—'}
 ${analysis.cvMatch.discrepancies.length > 0
   ? `- **Discrepancies:** ${analysis.cvMatch.discrepancies.join(', ')}`
   : ''}
 
 ### 🎯 Broker Match — ${analysis.brokerRequestMatch.brokerMatchScore}%
 - **Covered:** ${analysis.brokerRequestMatch.coveredRequirements.join(', ') || '—'}
-- **Missing:** ${analysis.brokerRequestMatch.missingRequirements.join(', ') || '—'}
+- **Missing (tested):** ${analysis.brokerRequestMatch.missingRequirements.join(', ') || '—'}
+- **Not assessed:** ${(analysis.brokerRequestMatch.notAssessedRequirements ?? []).join(', ') || '—'}
 - ${analysis.brokerRequestMatch.brokerFitSummary}
 
 ### ✅ Strengths
