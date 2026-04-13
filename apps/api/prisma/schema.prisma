@@ -25,6 +25,8 @@ model Interview {
   parentCommentId String?
   analysis      Json
   embeddingId   String?
+  managerName   String?
+  questions     Json?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   @@index([linearIssueId, parentCommentId, stage])

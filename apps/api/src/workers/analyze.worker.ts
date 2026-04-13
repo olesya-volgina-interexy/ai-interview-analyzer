@@ -51,7 +51,7 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
 
       if (previousAnalyses.length === 0) {
         console.warn(`No previous analyses found for issue ${meta.linearIssueId} - skipping final result analysis`);
-        return; // Прерываем выполнение если нет предыдущих анализов
+        return;
       }
 
       const previousContext = previousAnalyses
@@ -150,6 +150,7 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
     });
 
     // Шаг 5: Сохранить в PostgreSQL
+    const questions = (analysis as any).questions ?? [];
     await job.updateProgress(80);
     const interview = await createInterview({
       transcript: fullTranscript,
@@ -158,6 +159,7 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
       cvText,
       brokerRequest,
       parentCommentId,
+      questions,
     });
 
     // Шаг 6: Сохранить вектор в Qdrant

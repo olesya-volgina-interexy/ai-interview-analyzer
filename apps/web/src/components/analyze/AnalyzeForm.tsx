@@ -163,6 +163,14 @@ export function AnalyzeForm({ onSubmit }: { onSubmit: (data: AnalyzeRequest) => 
             className="bg-slate-50 border-slate-200 focus-visible:bg-white transition-colors"
           />
         </div>
+        <div className="space-y-1.5">
+          <Label className="text-sm font-medium text-slate-700">Manager</Label>
+          <Input
+            {...form.register('meta.managerName')}
+            placeholder="e.g. Anna Smith"
+            className="bg-slate-50 border-slate-200 focus-visible:bg-white transition-colors"
+          />
+        </div>
       </div>
 
       <Divider />

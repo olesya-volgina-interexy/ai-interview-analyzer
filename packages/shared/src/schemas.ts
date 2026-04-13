@@ -16,6 +16,15 @@ export const InterviewMetaSchema = z.object({
   linearIssueId: z.string().optional(),
   cvUrl: z.string().url().optional(),
   brokerRequest: z.string().optional(),
+  managerName: z.string().optional(),
+});
+
+export const InterviewQuestionsSchema = z.object({
+  questions: z.array(z.object({
+    question: z.string(),
+    topic: z.string().optional(),
+    candidateHandled: z.enum(['well', 'partial', 'poor', 'skipped']).optional(),
+  })),
 });
 
 export const ManagerCallAnalysisSchema = z.object({
@@ -43,6 +52,11 @@ export const ManagerCallAnalysisSchema = z.object({
   reasoning: z.string(),
   decisionBreakers: z.array(z.string()),         // причины если rejected
   recommendation: z.string(),                    // рекомендация рекрутеру
+  questions: z.array(z.object({
+    question: z.string(),
+    topic: z.string().optional(),
+    candidateHandled: z.enum(['well', 'partial', 'poor', 'skipped']).optional(),
+  })).optional(),
 });
 
 export const CVMatchSchema = z.object({
@@ -82,6 +96,11 @@ export const TechnicalAnalysisSchema = z.object({
   decisionBreakers: z.array(z.string()),
   roleFitSummary: z.string(),
   score: z.number().min(0).max(100),
+  questions: z.array(z.object({
+    question: z.string(),
+    topic: z.string().optional(),
+    candidateHandled: z.enum(['well', 'partial', 'poor', 'skipped']).optional(),
+  })).optional(),
 });
 
 export const FinalResultAnalysisSchema = z.object({
@@ -127,6 +146,7 @@ export const ChatRequestSchema = z.object({
 export type FinalResultAnalysis = z.infer<typeof FinalResultAnalysisSchema>;
 export type InterviewStage = z.infer<typeof InterviewStageSchema>;
 export type InterviewMeta = z.infer<typeof InterviewMetaSchema>;
+export type InterviewQuestions = z.infer<typeof InterviewQuestionsSchema>;
 export type ManagerCallAnalysis = z.infer<typeof ManagerCallAnalysisSchema>;
 export type TechnicalAnalysis = z.infer<typeof TechnicalAnalysisSchema>;
 export type CandidateAnalysis = z.infer<typeof CandidateAnalysisSchema>;

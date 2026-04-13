@@ -9,11 +9,13 @@ interface Filters {
   stage?: string;
   clientName?: string;
   decision?: string;
+  managerName?: string;
 }
 
 interface InterviewFiltersProps {
   value: Filters;
   onChange: (v: Filters) => void;
+  managers?: string[];
 }
 
 const STAGE_LABELS: Record<string, string> = {
@@ -26,7 +28,7 @@ const DECISION_LABELS: Record<string, string> = {
   rejected: 'Rejected',
 };
 
-export function InterviewFilters({ value, onChange }: InterviewFiltersProps) {
+export function InterviewFilters({ value, onChange, managers = [] }: InterviewFiltersProps) {
   const set = (key: keyof Filters, val: string | null) =>
     onChange({ ...value, [key]: !val || val === 'all' ? undefined : val });
 
@@ -89,6 +91,20 @@ export function InterviewFilters({ value, onChange }: InterviewFiltersProps) {
         placeholder="Search by client..."
         className="w-full sm:w-44 h-8 text-sm"
       />
+
+      {managers.length > 0 && (
+        <Select value={value.managerName ?? 'all'} onValueChange={v => set('managerName', v)}>
+          <SelectTrigger className="w-full sm:w-40 h-8 text-sm">
+            <SelectValue>{value.managerName ?? 'All Managers'}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Managers</SelectItem>
+            {managers.map(m => (
+              <SelectItem key={m} value={m}>{m}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
       {hasActiveFilters && (
         <Button

@@ -65,8 +65,9 @@ export function InterviewsTable({ data, isLoading, onRowClick }: InterviewsTable
             <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[11%]">Date</th>
             <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[20%]">Candidate</th>
             <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[18%]">Role</th>
-            <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[16%]">Client</th>
-            <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[14%]">Stage</th>
+            <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[13%]">Client</th>
+            <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[12%]">Manager</th>
+            <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[12%]">Stage</th>
             <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[13%]">AI Result</th>
             <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[8%]">Score</th>
           </tr>
@@ -93,6 +94,9 @@ export function InterviewsTable({ data, isLoading, onRowClick }: InterviewsTable
                 </td>
                 <td className="px-3 py-3 text-slate-600 truncate">
                   {item.clientName ?? '—'}
+                </td>
+                <td className="px-3 py-3 text-slate-600 truncate">
+                  {item.managerName ?? '—'}
                 </td>
                 <td className="px-3 py-3">
                   <span className="text-xs text-slate-500">

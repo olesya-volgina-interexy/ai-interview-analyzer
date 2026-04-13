@@ -143,6 +143,9 @@ ${analysis.decisionBreakers.map((d: string) => `• ${d}`).join('\n')}
               <TabsTrigger value="transcript">Transcript</TabsTrigger>
               {data.cvText && <TabsTrigger value="cv">CV</TabsTrigger>}
               {data.brokerRequest && <TabsTrigger value="broker">Broker Request</TabsTrigger>}
+              {data.questions && data.questions.length > 0 && (
+                <TabsTrigger value="questions">Questions</TabsTrigger>
+              )}
             </TabsList>
 
             <TabsContent value="analysis" className="mt-4">
@@ -170,6 +173,33 @@ ${analysis.decisionBreakers.map((d: string) => `• ${d}`).join('\n')}
                 </pre>
               </TabsContent>
             )}
+            {data.questions && data.questions.length > 0 && (
+              <TabsContent value="questions" className="mt-4">
+                <div className="space-y-3">
+                  {data.questions.map((q, i) => (
+                    <div key={i} className="border rounded-md p-3 bg-slate-50">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm text-slate-800 font-medium">{q.question}</p>
+                        {q.candidateHandled && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap font-medium ${
+                            q.candidateHandled === 'well' ? 'bg-green-100 text-green-800' :
+                            q.candidateHandled === 'partial' ? 'bg-yellow-100 text-yellow-800' :
+                            q.candidateHandled === 'poor' ? 'bg-red-100 text-red-800' :
+                            'bg-slate-100 text-slate-500'
+                          }`}>
+                            {q.candidateHandled}
+                          </span>
+                        )}
+                      </div>
+                      {q.topic && (
+                        <p className="text-xs text-slate-400 mt-1">{q.topic}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </TabsContent>
+            )}
+
           </Tabs>
         )}
       </DialogContent>

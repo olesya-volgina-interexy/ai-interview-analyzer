@@ -14,6 +14,11 @@ export function InterviewsPage() {
     queryFn: () => interviewsApi.getList(filters).then(r => r.data),
   });
 
+  const { data: managers } = useQuery({
+    queryKey: ['interviews', 'managers'],
+    queryFn: () => interviewsApi.getManagers().then(r => r.data),
+  });
+
   return (
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between">
@@ -21,7 +26,7 @@ export function InterviewsPage() {
         <span className="text-sm text-slate-500">{interviews?.length ?? 0} records</span>
       </div>
 
-      <InterviewFilters value={filters} onChange={setFilters} />
+      <InterviewFilters value={filters} onChange={setFilters} managers={managers ?? []} />
 
       <InterviewsTable
         data={interviews ?? []}

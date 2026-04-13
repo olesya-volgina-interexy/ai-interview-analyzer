@@ -72,6 +72,7 @@ export interface InterviewListItem {
   decision: string | null;
   clientName: string | null;
   candidateName: string | null;
+  managerName: string | null;
   analysis: CandidateAnalysis;
   createdAt: string;
 }
@@ -82,6 +83,7 @@ export interface InterviewDetail extends InterviewListItem {
   brokerRequest: string | null;
   krisLink: string | null;
   linearIssueId: string | null;
+  questions: Array<{ question: string; topic?: string; candidateHandled?: string }> | null;
 }
 
 export interface InterviewStats {
@@ -109,8 +111,12 @@ export const interviewsApi = {
     stage?: string;
     clientName?: string;
     decision?: string;
+    managerName?: string;
     page?: number;
   }) => api.get<InterviewListItem[]>('/interviews', { params: filters }),
+
+  getManagers: () =>
+    api.get<string[]>('/interviews/managers'),
 
   getById: (id: string) =>
     api.get<InterviewDetail>(`/interviews/${id}`),

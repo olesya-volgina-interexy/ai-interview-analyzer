@@ -4,8 +4,8 @@ import { prisma } from '../db/prisma';
 
 export async function interviewRoutes(fastify: FastifyInstance) {
   fastify.get('/interviews', async (request) => {
-    const { role, level, stage, clientName, decision, page, limit } = request.query as any;
-    return getInterviews({ role, level, stage, clientName, decision, page, limit });
+    const { role, level, stage, clientName, decision, managerName, page, limit } = request.query as any;
+    return getInterviews({ role, level, stage, clientName, decision, managerName, page, limit });
   });
 
   fastify.get('/interviews/stats', async () => {
@@ -35,6 +35,15 @@ export async function interviewRoutes(fastify: FastifyInstance) {
   }, {} as Record<string, number>);
 
   return { total, hireRate, avgScore, byRole, byStage };
+  });
+
+  fastify.get('/interviews/managers', async () => {
+    const rows = await prisma.interview.findMany({
+      where: { managerName: { not: null } },
+      select: { managerName: true },
+      distinct: ['managerName'],
+    });
+    return rows.map(r => r.managerName).filter(Boolean);
   });
 
   fastify.get<{ Params: { id: string } }>(

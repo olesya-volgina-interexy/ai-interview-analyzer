@@ -9,6 +9,7 @@ export async function createInterview(data: {
   cvText?: string;
   brokerRequest?: string;
   parentCommentId?: string;
+  questions?: Array<{ question: string; topic?: string; candidateHandled?: string }>;
 }) {
   return prisma.interview.create({
     data: {
@@ -26,7 +27,9 @@ export async function createInterview(data: {
       krisLink: data.meta.krisLink,
       cvUrl: data.meta.cvUrl,
       linearIssueId: data.meta.linearIssueId,
+      managerName: data.meta.managerName,
       analysis: data.analysis as object,
+      questions: data.questions ? (data.questions as object[]) : undefined,
     },
   });
 }
@@ -40,6 +43,7 @@ export async function getInterviews(filters?: {
   decision?: string;
   page?: number;
   limit?: number;
+  managerName?: string;
 }) {
   const page = filters?.page ?? 1;
   const limit = filters?.limit ?? 20;
@@ -51,6 +55,7 @@ export async function getInterviews(filters?: {
       ...(filters?.stage && { stage: filters.stage }),
       ...(filters?.clientName && { clientName: filters.clientName }),
       ...(filters?.decision && { decision: filters.decision }),
+      ...(filters?.managerName && { managerName: filters.managerName }),
     },
     orderBy: { createdAt: 'desc' },
     skip: (page - 1) * limit,
@@ -63,6 +68,7 @@ export async function getInterviews(filters?: {
       decision: true,
       clientName: true,
       candidateName: true,
+      managerName: true,
       analysis: true,
       createdAt: true,
     },

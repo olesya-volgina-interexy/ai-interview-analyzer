@@ -22,6 +22,7 @@ MANDATORY RULES:
     "I may be wrong") followed by a reasonable answer should NOT be flagged as weaknesses.
 11. A topic not raised by the interviewer carries zero negative signal.
     Do not flag missing discussion of any topic as a candidate weakness.
+12. The "questions" array must contain ALL questions asked by the interviewer in the transcript, verbatim. Never return an empty array if questions exist in the transcript.
 
 ${hasDecision ? `
 DECISION JUSTIFICATION (critical task):
@@ -64,6 +65,10 @@ YOUR TASKS:
 3. Check soft skills: clarity of thought, structure of speech, confidence
 4. Evaluate fit with broker's soft requirements
 5. ${hasDecision ? 'Justify the interviewer decision with evidence from the transcript' : 'Make an independent stage decision'}
+6. MANDATORY: Extract ALL questions asked by the interviewer into the "questions" array. 
+   This field must NEVER be empty if there are any questions in the transcript.
+   For each question include: exact wording, topic category, and how the candidate handled it.
+   If the interviewer asked 5 questions — the array must have 5 items.
 
 CRITICAL PATTERNS TO DETECT AND REPORT:
 - Candidate avoided or deflected questions → note explicitly in weaknesses
@@ -264,6 +269,7 @@ YOUR TASKS
 5. Extract architectural decisions from free-form narratives for Strengths and systemDesign (not for confirmedSkills)
 6. Apply consistency check before output
 7. ${hasDecision ? 'Justify the interviewer decision with specific transcript evidence' : 'Provide an independent recommendation (prefer uncertain if genuinely ambiguous)'}
+8. Extract ALL questions asked by the interviewer as a flat list in the "questions" field. Classify each by topic and how the candidate handled it.
 
 ════════════════════════════════════════
 CRITICAL PATTERNS TO DETECT AND REPORT
@@ -390,7 +396,14 @@ Return JSON strictly following this schema:
   "stageResult": "passed | rejected | on_hold",
   "reasoning": "string — detailed justification of the decision",
   "decisionBreakers": ["string — specific evidence from transcript that caused rejection, empty array if passed"],
-  "recommendation": "string — concrete advice for recruiter on next steps"
+  "recommendation": "string — concrete advice for recruiter on next steps",
+  "questions": [
+    {
+      "question": "string — exact question asked by the interviewer",
+      "topic": "string — category e.g. Communication, Motivation, Salary",
+      "candidateHandled": "well | partial | poor | skipped"
+    }
+  ]
 }`;
 
 export const TECHNICAL_JSON_SCHEMA = `
@@ -427,7 +440,14 @@ Return JSON strictly following this schema:
   "reasoning": "string — detailed justification referencing specific transcript evidence; if uncertain, explain what remains unverified",
   "decisionBreakers": ["string — each entry must reference an explicit question in the transcript AND a demonstrated failure; empty array if hired or uncertain"],
   "roleFitSummary": "string",
-  "score": "number (0-100): reflects quality of answers actually given; untested topics have zero effect on this score"
+  "score": "number (0-100): reflects quality of answers actually given; untested topics have zero effect on this score",
+  "questions": [
+    {
+      "question": "string — exact question asked by the interviewer",
+      "topic": "string — category e.g. SQL, Algorithms, System Design",
+      "candidateHandled": "well | partial | poor | skipped"
+    }
+  ]
 }`;
 
 export function formatSimilarCases(cases: Array<{
