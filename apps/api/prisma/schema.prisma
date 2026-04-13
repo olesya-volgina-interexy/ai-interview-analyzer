@@ -40,3 +40,17 @@ model Client {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+model IncomingRequest {
+  id            String   @id @default(uuid())
+  linearIssueId String?  @unique
+  clientName    String?
+  role          String?
+  level         String?
+  brokerRequest String?  @db.Text
+  status        String   // 'new' | 'in_progress' | 'manager_call' | 'technical' | 'hired' | 'rejected' | 'on_hold' | 'dropped'
+  receivedAt    DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([receivedAt, status])
+}

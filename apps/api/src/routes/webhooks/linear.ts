@@ -9,8 +9,9 @@ import {
 } from '../../services/linear.parser';
 import { extractCVText, detectLevelFromCV, extractNameFromCV, extractNameFromTranscript  } from '../../services/cv.service';
 import { analyzeQueue } from '../../workers/analyze.worker';
-import { getExistingAnalysesForIssue } from '../../db/db.service';
+import { getExistingAnalysesForIssue, upsertIncomingRequest, updateIncomingRequestStatus } from '../../db/db.service';
 import { fetchTranscript } from '../../services/bluedot.service';
+
 
 const STATUS_BROKERS_CALL = "Broker's Call";
 const STATUS_TECH_CALL = 'Tech Call';
@@ -52,6 +53,12 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
         const issueId = data.issue?.id;
 
         if (!issueId) return reply.status(200).send({ ok: true });
+
+        // Создаём/обновляем IncomingRequest при любом новом комментарии
+        await upsertIncomingRequest({
+          linearIssueId: issueId,
+          status: 'in_progress',
+        }).catch(err => fastify.log.warn({ err }, 'Failed to upsert IncomingRequest'));
 
         fastify.log.info(`Linear: new comment in issue ${issueId}`);
 
@@ -114,12 +121,32 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
         return reply.status(200).send({ ok: true });
       }
 
+      if (type === 'Issue' && action === 'create') {
+        await upsertIncomingRequest({
+          linearIssueId: data.id,
+          clientName: data.team?.name,
+          role: data.title,
+          status: 'new',
+        }).catch(err => fastify.log.warn({ err }, 'Failed to create IncomingRequest'));
+      }
+
       // ── Триггер на смену статуса Issue ──────────────────────────────────
       if (type === 'Issue' && action === 'update' && updatedFrom?.stateId && data.state) {
         const newStatus = data.state.name;
         const issueId = data.id;
 
         fastify.log.info(`Linear: issue ${issueId} → "${newStatus}"`);
+
+        // Синхронизируем статус IncomingRequest
+        const statusMap: Record<string, string> = {
+          [STATUS_BROKERS_CALL]: 'manager_call',
+          [STATUS_TECH_CALL]: 'technical',
+          [STATUS_HIRED]: 'hired',
+          [STATUS_LOST]: 'rejected',
+        };
+        if (statusMap[newStatus]) {
+          await updateIncomingRequestStatus(issueId, statusMap[newStatus]);
+        }
 
         // Получаем существующие анализы
         const existingAnalyses = await getExistingAnalysesForIssue(issueId);

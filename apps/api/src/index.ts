@@ -4,6 +4,7 @@ import { prisma } from './db/prisma';
 import { initQdrantCollection } from './db/qdrant';
 import { analyzeRoutes } from './routes/analyze';
 import { interviewRoutes } from './routes/interviews';
+import { statsRoutes } from './routes/stats';
 import './workers/analyze.worker';
 import { linearWebhookRoutes } from './routes/webhooks/linear';
 
@@ -14,6 +15,7 @@ app.register(linearWebhookRoutes);
 
 app.register(analyzeRoutes);
 app.register(interviewRoutes);
+app.register(statsRoutes);
 
 app.get('/health', async () => ({ status: 'ok', version: '1.0.0' }));
 

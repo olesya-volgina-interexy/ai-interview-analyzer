@@ -127,3 +127,30 @@ export const interviewsApi = {
   delete: (id: string) =>
     api.delete(`/interviews/${id}`),
 };
+
+export interface StatsOverview {
+  period: { from: string; to: string };
+  requests: {
+    total: number;
+    byStatus: Record<string, number>;
+    byClient: Record<string, number>;
+    byRole: Record<string, number>;
+  };
+  pipeline: {
+    reachedManagerCall: number;
+    reachedTechnical: number;
+    reachedFinalResult: number;
+    hired: number;
+    rejected: number;
+    conversion: {
+      requestToManagerCall: number;
+      managerCallToTechnical: number;
+      technicalToHired: number;
+    };
+  };
+}
+
+export const statsApi = {
+  getOverview: (params?: { from?: string; to?: string }) =>
+    api.get<StatsOverview>('/stats/overview', { params }),
+};
