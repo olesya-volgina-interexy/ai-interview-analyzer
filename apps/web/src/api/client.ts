@@ -165,6 +165,48 @@ export interface StatsOverview {
   };
 }
 
+export interface CandidateListItem {
+  candidateName: string;
+  totalInterviews: number;
+  successful: number;
+  failed: number;
+  lastInterviewAt: string;
+  roles: string[];
+  avgScore: number | null;
+}
+
+export interface CandidateDetail {
+  candidateName: string;
+  totalInterviews: number;
+  successful: number;
+  failed: number;
+  avgScore: number | null;
+  roles: string[];
+  topWeaknesses: Array<{ text: string; count: number }>;
+  topDecisionBreakers: Array<{ text: string; count: number }>;
+  interviews: Array<{
+    id: string;
+    stage: string;
+    role: string;
+    level: string;
+    decision: string | null;
+    clientName: string | null;
+    managerName: string | null;
+    createdAt: string;
+    recommendation: string | null;
+    stageResult: string | null;
+    score: number | null;
+  }>;
+}
+
+export const candidatesApi = {
+  getList: (params?: { search?: string; page?: number; limit?: number }) =>
+    api.get<CandidateListItem[]>('/candidates', { params }),
+
+  getByName: (name: string) =>
+    api.get<CandidateDetail>(`/candidates/${encodeURIComponent(name)}`),
+};
+
 export const statsApi = {
   getOverview: (params?: { from?: string; to?: string }) =>
     api.get<StatsOverview>('/stats/overview', { params }),

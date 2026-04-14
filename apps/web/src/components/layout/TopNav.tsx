@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from '@tanstack/react-router';
-import { LayoutDashboard, FileText, Plus, Menu, X } from 'lucide-react';
+import { LayoutDashboard, FileText, Users, Plus, Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
@@ -19,6 +19,7 @@ export function TopNav({ onNewAnalysis }: TopNavProps) {
         <nav className="hidden sm:flex absolute left-1/2 -translate-x-1/2 items-center gap-1 bg-white rounded-lg px-8 py-1.5 shadow-sm border border-slate-200">
           <NavItem to="/" icon={<LayoutDashboard size={16} />} label="Dashboard" />
           <NavItem to="/interviews" icon={<FileText size={16} />} label="Interviews" />
+          <NavItem to="/candidates" icon={<Users size={16} />} label="Candidates" />
         </nav>
 
         <Button
@@ -54,6 +55,12 @@ export function TopNav({ onNewAnalysis }: TopNavProps) {
             to="/interviews"
             icon={<FileText size={16} />}
             label="Interviews"
+            onClick={() => setMobileOpen(false)}
+          />
+          <MobileNavItem
+            to="/candidates"
+            icon={<Users size={16} />}
+            label="Candidates"
             onClick={() => setMobileOpen(false)}
           />
           <div className="mt-2 pt-2 border-t">

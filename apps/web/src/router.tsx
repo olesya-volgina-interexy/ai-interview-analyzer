@@ -2,6 +2,8 @@ import { createRouter, createRoute, createRootRoute, Outlet } from '@tanstack/re
 import { Layout } from './components/layout/Layout';
 import { DashboardPage } from './pages/DashboardPage';
 import { InterviewsPage } from './pages/InterviewsPage';
+import { CandidatesPage } from './pages/CandidatesPage';
+import { CandidateDetailPage } from './pages/CandidateDetailPage';
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -23,7 +25,24 @@ const interviewsRoute = createRoute({
   component: InterviewsPage,
 });
 
-const routeTree = rootRoute.addChildren([dashboardRoute, interviewsRoute]);
+const candidatesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/candidates',
+  component: CandidatesPage,
+});
+
+const candidateDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/candidates/$name',
+  component: CandidateDetailPage,
+});
+
+const routeTree = rootRoute.addChildren([
+  dashboardRoute,
+  interviewsRoute,
+  candidatesRoute,
+  candidateDetailRoute,
+]);
 
 export const router = createRouter({ routeTree });
 
