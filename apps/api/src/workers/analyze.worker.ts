@@ -17,7 +17,8 @@ import {
 } from '../services/linear.poster';
 import type { AnalyzeRequest } from '@shared/schemas';
 
-export { redis } from '../db/redis';
+import { redis } from '../db/redis';
+export { redis };
 
 export const analyzeQueue = new Queue('analyze', { connection: redis });
 
