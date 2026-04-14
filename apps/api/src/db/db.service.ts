@@ -1,5 +1,6 @@
 import { prisma } from '../db/prisma';
 import type { InterviewMeta, CandidateAnalysis } from '@shared/schemas';
+import { redis } from '../workers/analyze.worker';
 
 // Создать запись интервью
 export async function createInterview(data: {
@@ -11,7 +12,7 @@ export async function createInterview(data: {
   parentCommentId?: string;
   questions?: Array<{ question: string; topic?: string; candidateHandled?: string }>;
 }) {
-  return prisma.interview.create({
+  const interview = await prisma.interview.create({
     data: {
       transcript: data.transcript,
       cvText: data.cvText,
@@ -32,6 +33,16 @@ export async function createInterview(data: {
       questions: data.questions ? (data.questions as object[]) : undefined,
     },
   });
+
+  // Инвалидируем кеш статистики
+  try {
+    const keys = await redis.keys('stats:overview:*');
+    if (keys.length > 0) await redis.del(...keys);
+  } catch (err) {
+    console.warn('Failed to invalidate stats cache:', err);
+  }
+
+  return interview;
 }
 
 // Получить список интервью с фильтрами

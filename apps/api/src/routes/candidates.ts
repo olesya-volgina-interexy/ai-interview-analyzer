@@ -16,64 +16,88 @@ export async function candidateRoutes(fastify: FastifyInstance) {
     const take = Number(limit ?? 20);
     const skip = (Number(page ?? 1) - 1) * take;
 
-    const interviews = await prisma.interview.findMany({
-      where: {
-        candidateName: {
-          not: null,
-          ...(search ? { contains: search, mode: 'insensitive' } : {}),
-        },
-        ...(role ? { role } : {}),
-      },
-      select: {
-        candidateName: true,
-        role: true,
-        stage: true,
-        decision: true,
-        analysis: true,
-        createdAt: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    // Строим условия WHERE
+    const conditions: string[] = [`"candidateName" IS NOT NULL`];
+    const values: unknown[] = [];
+    let idx = 1;
 
-    // Группируем по нормализованному имени
-    const grouped: Record<string, typeof interviews> = {};
-    for (const i of interviews) {
-      const key = i.candidateName!.trim().toLowerCase();
-      if (!grouped[key]) grouped[key] = [];
-      grouped[key].push(i);
+    if (search) {
+      conditions.push(`LOWER("candidateName") LIKE LOWER($${idx})`);
+      values.push(`%${search}%`);
+      idx++;
     }
 
-    const candidates = Object.entries(grouped)
-      .map(([, items]) => {
-        const latest = items[0];
-        const scores = items
-          .map(i => (i.analysis as any)?.score)
-          .filter((s): s is number => typeof s === 'number');
-        const successful = items.filter(i => i.decision === 'hired').length;
-        const failed = items.filter(i => i.decision === 'rejected').length;
-        const roles = [...new Set(items.map(i => i.role))];
+    if (role) {
+      conditions.push(`role = $${idx}`);
+      values.push(role);
+      idx++;
+    }
 
-        return {
-          candidateName: latest.candidateName,
-          totalInterviews: items.length,
-          successful,
-          failed,
-          lastInterviewAt: latest.createdAt.toISOString(),
-          roles,
-          avgScore: scores.length > 0
-            ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
-            : null,
-        };
-      })
-      .filter(c => {
-        if (result === 'hired') return c.successful > 0;
-        if (result === 'not_hired') return c.successful === 0;
-        return true;
-      })
-      .sort((a, b) => new Date(b.lastInterviewAt).getTime() - new Date(a.lastInterviewAt).getTime())
-      .slice(skip, skip + take);
+    const where = conditions.join(' AND ');
 
-    return candidates;
+    // Агрегация на уровне SQL
+    const rows = await prisma.$queryRawUnsafe<Array<{
+      candidateName: string;
+      totalInterviews: bigint;
+      successful: bigint;
+      failed: bigint;
+      lastInterviewAt: Date;
+      roles: string;
+    }>>(
+      `SELECT
+        "candidateName",
+        COUNT(*) as "totalInterviews",
+        COUNT(*) FILTER (WHERE decision = 'hired') as "successful",
+        COUNT(*) FILTER (WHERE decision = 'rejected') as "failed",
+        MAX("createdAt") as "lastInterviewAt",
+        STRING_AGG(DISTINCT role, ',') as roles
+      FROM "Interview"
+      WHERE ${where}
+      GROUP BY LOWER("candidateName"), "candidateName"
+      ORDER BY MAX("createdAt") DESC`,
+      ...values
+    );
+
+    // Считаем avgScore отдельно — JSON поле не агрегируется в SQL легко
+    const names = rows.map(r => r.candidateName);
+    const scoreRows = names.length > 0
+      ? await prisma.interview.findMany({
+          where: { candidateName: { in: names } },
+          select: { candidateName: true, analysis: true },
+        })
+      : [];
+
+    const scoreMap: Record<string, number[]> = {};
+    for (const r of scoreRows) {
+      const score = (r.analysis as any)?.score;
+      if (typeof score === 'number' && r.candidateName) {
+        const key = r.candidateName.toLowerCase();
+        if (!scoreMap[key]) scoreMap[key] = [];
+        scoreMap[key].push(score);
+      }
+    }
+
+    let candidates = rows.map(r => {
+      const scores = scoreMap[r.candidateName.toLowerCase()] ?? [];
+      return {
+        candidateName: r.candidateName,
+        totalInterviews: Number(r.totalInterviews),
+        successful: Number(r.successful),
+        failed: Number(r.failed),
+        lastInterviewAt: r.lastInterviewAt.toISOString(),
+        roles: r.roles ? r.roles.split(',') : [],
+        avgScore: scores.length > 0
+          ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+          : null,
+      };
+    });
+
+    // Фильтр по result (hired/not_hired) — после агрегации
+    if (result === 'hired') candidates = candidates.filter(c => c.successful > 0);
+    if (result === 'not_hired') candidates = candidates.filter(c => c.successful === 0);
+
+    // Пагинация
+    return candidates.slice(skip, skip + take);
   });
 
   fastify.get<{ Params: { name: string } }>(

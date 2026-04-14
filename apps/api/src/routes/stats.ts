@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../db/prisma';
 import { clusterTextItems } from '../services/llm.service';
+import { redis } from '../workers/analyze.worker';
+
+const CACHE_TTL = 60 * 30; // 30 минут
 
 export async function statsRoutes(fastify: FastifyInstance) {
   fastify.get('/stats/overview', async (request) => {
@@ -9,6 +12,18 @@ export async function statsRoutes(fastify: FastifyInstance) {
     const now = new Date();
     const fromDate = from ? new Date(from) : new Date(now.getFullYear(), now.getMonth(), 1);
     const toDate = to ? new Date(to) : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+
+    // Проверяем кеш
+    const cacheKey = `stats:overview:${fromDate.toISOString()}:${toDate.toISOString()}`;
+    try {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        fastify.log.info('Stats overview served from cache');
+        return JSON.parse(cached);
+      }
+    } catch (err) {
+      fastify.log.warn({ err }, 'Redis cache read failed, proceeding without cache');
+    }
 
     const [requests, interviews, allInterviewsForTiming] = await Promise.all([
       prisma.incomingRequest.findMany({
@@ -141,7 +156,7 @@ export async function statsRoutes(fastify: FastifyInstance) {
       avgScore: Math.round(scores.reduce((a, b) => a + b, 0) / scores.length),
     }));
 
-    return {
+    const result = {
       period: { from: fromDate.toISOString(), to: toDate.toISOString() },
       requests: { total, byStatus, byClient, byRole },
       pipeline: {
@@ -173,5 +188,14 @@ export async function statsRoutes(fastify: FastifyInstance) {
         avgScoreByRole,
       },
     };
+    
+    // Сохраняем в кеш
+    try {
+      await redis.set(cacheKey, JSON.stringify(result), 'EX', CACHE_TTL);
+    } catch (err) {
+      fastify.log.warn({ err }, 'Redis cache write failed');
+    }
+
+    return result;
   });
 }
