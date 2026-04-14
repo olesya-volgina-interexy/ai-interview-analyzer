@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../db/prisma';
 import { clusterTextItems } from '../services/llm.service';
-import { redis } from '../workers/analyze.worker';
+import { redis } from '../db/redis';
 
 const CACHE_TTL = 60 * 30; // 30 минут
 

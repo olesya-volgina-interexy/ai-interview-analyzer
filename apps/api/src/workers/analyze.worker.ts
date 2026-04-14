@@ -1,5 +1,4 @@
 import { Worker, Queue } from 'bullmq';
-import IORedis from 'ioredis';
 import { embedText, buildEmbeddingText } from '../services/embedding.service';
 import { findSimilarInterviews, saveEmbedding } from '../services/rag.service';
 import { analyzeInterview, analyzeFinalResult } from '../services/llm.service';
@@ -18,10 +17,7 @@ import {
 } from '../services/linear.poster';
 import type { AnalyzeRequest } from '@shared/schemas';
 
-export const redis = new IORedis(
-  process.env.REDIS_URL ?? 'redis://localhost:6379',
-  { maxRetriesPerRequest: null }
-);
+export { redis } from '../db/redis';
 
 export const analyzeQueue = new Queue('analyze', { connection: redis });
 

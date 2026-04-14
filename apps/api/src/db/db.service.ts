@@ -1,6 +1,6 @@
 import { prisma } from '../db/prisma';
 import type { InterviewMeta, CandidateAnalysis } from '@shared/schemas';
-import { redis } from '../workers/analyze.worker';
+import { redis } from '../db/redis';
 
 // Создать запись интервью
 export async function createInterview(data: {
