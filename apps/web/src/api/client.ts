@@ -127,3 +127,45 @@ export const interviewsApi = {
   delete: (id: string) =>
     api.delete(`/interviews/${id}`),
 };
+
+export interface StatsOverview {
+  period: { from: string; to: string };
+  requests: {
+    total: number;
+    byStatus: Record<string, number>;
+    byClient: Record<string, number>;
+    byRole: Record<string, number>;
+  };
+  pipeline: {
+    reachedManagerCall: number;
+    reachedTechnical: number;
+    reachedFinalResult: number;
+    hired: number;
+    rejected: number;
+    conversion: {
+      requestToManagerCall: number;
+      managerCallToTechnical: number;
+      technicalToHired: number;
+    };
+  };
+  timing: {
+    avgManagerToTechnicalDays: number | null;
+    avgTechnicalToFinalDays: number | null;
+    avgTotalDays: number | null;
+    trend: Array<{ month: string; count: number }>;
+  };
+  quality: {
+    topDecisionBreakers: Array<{ text: string; count: number }>;
+    topWeaknesses: Array<{ text: string; count: number }>;
+    hireRateByRole: Array<{ role: string; hireRate: number; total: number }>;
+  };
+  candidates: {
+    avgScoreByLevel: Array<{ level: string; avgScore: number }>;
+    avgScoreByRole: Array<{ role: string; avgScore: number }>;
+  };
+}
+
+export const statsApi = {
+  getOverview: (params?: { from?: string; to?: string }) =>
+    api.get<StatsOverview>('/stats/overview', { params }),
+};

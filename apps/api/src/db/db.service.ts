@@ -169,3 +169,41 @@ export async function getExistingAnalysesForIssue(
 
   return result;
 }
+
+// ── IncomingRequest ────────────────────────────────────────────────────────
+
+export async function upsertIncomingRequest(data: {
+  linearIssueId: string;
+  clientName?: string;
+  role?: string;
+  level?: string;
+  brokerRequest?: string;
+  status?: string;
+}) {
+  return prisma.incomingRequest.upsert({
+    where: { linearIssueId: data.linearIssueId },
+    create: {
+      linearIssueId: data.linearIssueId,
+      clientName: data.clientName,
+      role: data.role,
+      level: data.level,
+      brokerRequest: data.brokerRequest,
+      status: data.status ?? 'new',
+    },
+    update: {
+      ...(data.clientName && { clientName: data.clientName }),
+      ...(data.role && { role: data.role }),
+      ...(data.status && { status: data.status }),
+    },
+  });
+}
+
+export async function updateIncomingRequestStatus(
+  linearIssueId: string,
+  status: string
+) {
+  return prisma.incomingRequest.updateMany({
+    where: { linearIssueId },
+    data: { status },
+  });
+}
