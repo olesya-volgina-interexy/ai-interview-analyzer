@@ -148,6 +148,21 @@ export interface StatsOverview {
       technicalToHired: number;
     };
   };
+  timing: {
+    avgManagerToTechnicalDays: number | null;
+    avgTechnicalToFinalDays: number | null;
+    avgTotalDays: number | null;
+    trend: Array<{ month: string; count: number }>;
+  };
+  quality: {
+    topDecisionBreakers: Array<{ text: string; count: number }>;
+    topWeaknesses: Array<{ text: string; count: number }>;
+    hireRateByRole: Array<{ role: string; hireRate: number; total: number }>;
+  };
+  candidates: {
+    avgScoreByLevel: Array<{ level: string; avgScore: number }>;
+    avgScoreByRole: Array<{ role: string; avgScore: number }>;
+  };
 }
 
 export const statsApi = {

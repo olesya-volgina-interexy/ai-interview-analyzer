@@ -11,6 +11,9 @@ import { StatsCards } from '@/components/dashboard/StatsCards';
 import { Charts } from '@/components/dashboard/Charts';
 import { RequestsStatsCard } from '@/components/dashboard/RequestsStatsCard';
 import { PipelineFunnelChart } from '@/components/dashboard/PipelineFunnelChart';
+import { TimelineStatsCard } from '@/components/dashboard/TimelineStatsCard';
+import { QualityStatsCard } from '@/components/dashboard/QualityStatsCard';
+import { CandidateInsightsCard } from '@/components/dashboard/CandidateInsightsCard';
 import { InterviewsTable } from '@/components/interviews/InterviewsTable';
 import { CandidateModal } from '@/components/modals/CandidateModal';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -106,10 +109,17 @@ export function DashboardPage() {
           <Charts stats={stats} />
 
           {overview && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <RequestsStatsCard requests={overview.requests} />
-              <PipelineFunnelChart pipeline={overview.pipeline} />
-            </div>
+            <>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <RequestsStatsCard requests={overview.requests} />
+                <PipelineFunnelChart pipeline={overview.pipeline} />
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <TimelineStatsCard timing={overview.timing} />
+                <QualityStatsCard quality={overview.quality} />
+                <CandidateInsightsCard candidates={overview.candidates} />
+              </div>
+            </>
           )}
 
           <div>
