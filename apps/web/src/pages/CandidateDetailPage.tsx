@@ -54,7 +54,7 @@ export function CandidateDetailPage() {
   const navigate = useNavigate();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['candidate', name],
     queryFn: () => candidatesApi.getByName(decodeURIComponent(name)).then(r => r.data),
   });
@@ -64,6 +64,21 @@ export function CandidateDetailPage() {
       <Skeleton className="h-8 w-48" />
       <Skeleton className="h-32 w-full" />
       <Skeleton className="h-64 w-full" />
+    </div>
+  );
+
+  if (isError) return (
+    <div className="p-4 md:p-6">
+      <button
+        onClick={() => navigate({ to: '/candidates' })}
+        className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-600 mb-4"
+      >
+        <ArrowLeft size={16} /> Back to candidates
+      </button>
+      <div className="rounded-md border border-dashed p-12 text-center">
+        <p className="text-sm text-slate-500">Candidate not found.</p>
+        <p className="text-xs text-slate-400 mt-1">The name may have changed or been deleted.</p>
+      </div>
     </div>
   );
 

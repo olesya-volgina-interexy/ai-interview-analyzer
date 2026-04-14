@@ -5,10 +5,12 @@ import { clusterTextItems } from '../services/llm.service';
 export async function candidateRoutes(fastify: FastifyInstance) {
 
   fastify.get('/candidates', async (request) => {
-    const { search, page, limit } = request.query as {
+    const { search, page, limit, role, result } = request.query as {
       search?: string;
       page?: string;
       limit?: string;
+      role?: string;
+      result?: 'hired' | 'not_hired';
     };
 
     const take = Number(limit ?? 20);
@@ -20,6 +22,7 @@ export async function candidateRoutes(fastify: FastifyInstance) {
           not: null,
           ...(search ? { contains: search, mode: 'insensitive' } : {}),
         },
+        ...(role ? { role } : {}),
       },
       select: {
         candidateName: true,
@@ -61,6 +64,11 @@ export async function candidateRoutes(fastify: FastifyInstance) {
             ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
             : null,
         };
+      })
+      .filter(c => {
+        if (result === 'hired') return c.successful > 0;
+        if (result === 'not_hired') return c.successful === 0;
+        return true;
       })
       .sort((a, b) => new Date(b.lastInterviewAt).getTime() - new Date(a.lastInterviewAt).getTime())
       .slice(skip, skip + take);

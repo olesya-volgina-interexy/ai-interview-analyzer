@@ -45,22 +45,17 @@ export function CandidatesPage() {
   );
 
   const { data, isLoading } = useQuery({
-    queryKey: ['candidates', debouncedSearch, page],
+    queryKey: ['candidates', debouncedSearch, page, roleFilter, resultFilter],
     queryFn: () => candidatesApi.getList({
       search: debouncedSearch || undefined,
       page,
       limit: fetchLimit,
+      role: roleFilter || undefined,
+      result: resultFilter === 'all' ? undefined : resultFilter,
     }).then(r => r.data),
   });
 
-  const filtered = (data ?? []).filter(c => {
-    if (roleFilter && !c.roles.includes(roleFilter)) return false;
-    if (resultFilter === 'hired' && c.successful === 0) return false;
-    if (resultFilter === 'not_hired' && c.successful > 0) return false;
-    return true;
-  });
-
-  const sorted = [...filtered].sort((a, b) => {
+  const sorted = [...(data ?? [])].sort((a, b) => {
     const mul = sortDir === 'asc' ? 1 : -1;
     if (sortKey === 'lastInterviewAt') return mul * (new Date(a.lastInterviewAt).getTime() - new Date(b.lastInterviewAt).getTime());
     if (sortKey === 'avgScore') return mul * ((a.avgScore ?? -1) - (b.avgScore ?? -1));

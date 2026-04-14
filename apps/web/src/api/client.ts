@@ -143,7 +143,6 @@ export interface StatsOverview {
     hired: number;
     rejected: number;
     conversion: {
-      requestToManagerCall: number;
       managerCallToTechnical: number;
       technicalToHired: number;
     };
@@ -200,7 +199,7 @@ export interface CandidateDetail {
 }
 
 export const candidatesApi = {
-  getList: (params?: { search?: string; page?: number; limit?: number }) =>
+  getList: (params?: { search?: string; page?: number; limit?: number; role?: string; result?: 'hired' | 'not_hired' }) =>
     api.get<CandidateListItem[]>('/candidates', { params }),
 
   getByName: (name: string) =>

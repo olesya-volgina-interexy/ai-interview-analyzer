@@ -151,8 +151,6 @@ export async function statsRoutes(fastify: FastifyInstance) {
         hired,
         rejected,
         conversion: {
-          requestToManagerCall: reachedManagerCall > 0 && reachedTechnical > 0
-            ? Math.round((reachedTechnical / reachedManagerCall) * 100) : 0,
           managerCallToTechnical: reachedManagerCall > 0
             ? Math.round((reachedTechnical / reachedManagerCall) * 100) : 0,
           technicalToHired: reachedTechnical > 0
