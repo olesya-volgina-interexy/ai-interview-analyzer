@@ -23,7 +23,7 @@ const STAGE_LABEL: Record<string, string> = {
 const RESULT_STYLE: Record<string, string> = {
   hire: 'bg-green-100 text-green-800',
   hired: 'bg-green-100 text-green-800',
-  passed: 'bg-blue-100 text-blue-800',
+  passed: 'bg-[#5067F4]/10 text-[#5067F4]',
   no_hire: 'bg-red-100 text-red-800',
   rejected: 'bg-red-100 text-red-800',
   on_hold: 'bg-slate-100 text-slate-600',
@@ -155,15 +155,15 @@ export function CandidateDetailPage() {
         </CardHeader>
         <CardContent className="p-0">
           <table className="w-full text-sm table-fixed">
-            <thead className="bg-slate-50 border-b">
+            <thead className="bg-[#5067F4]/5 border-b border-[#5067F4]/10">
               <tr>
-                <th className="text-left px-3 py-2 text-xs font-medium text-slate-500 uppercase tracking-wide w-[14%]">Date</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-slate-500 uppercase tracking-wide w-[16%]">Stage</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-slate-500 uppercase tracking-wide w-[14%]">Role</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-slate-500 uppercase tracking-wide w-[16%]">Client</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-slate-500 uppercase tracking-wide w-[16%]">Manager</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-slate-500 uppercase tracking-wide w-[14%]">Result</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-slate-500 uppercase tracking-wide w-[10%]">Score</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[14%]">Date</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[16%]">Stage</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[14%]">Role</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[16%]">Client</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[16%]">Manager</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[14%]">Result</th>
+                <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[10%]">Score</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">

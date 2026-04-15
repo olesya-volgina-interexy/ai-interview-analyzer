@@ -25,11 +25,11 @@ export function AnalyzeProgress({ progress }: { progress: number }) {
               {done ? (
                 <CheckCircle2 size={18} className="text-green-500 shrink-0" />
               ) : active ? (
-                <Loader2 size={18} className="text-blue-500 animate-spin shrink-0" />
+                <Loader2 size={18} className="text-[#5067F4] animate-spin shrink-0" />
               ) : (
                 <Circle size={18} className="text-slate-300 shrink-0" />
               )}
-              <span className={done ? 'text-slate-700' : active ? 'text-blue-600 font-medium' : 'text-slate-400'}>
+              <span className={done ? 'text-slate-700' : active ? 'text-[#5067F4] font-medium' : 'text-slate-400'}>
                 {step.label}
               </span>
             </div>

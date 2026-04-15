@@ -46,6 +46,16 @@ export async function interviewRoutes(fastify: FastifyInstance) {
     return rows.map(r => r.managerName).filter(Boolean);
   });
 
+  fastify.get('/interviews/roles', async () => {
+    const rows = await prisma.interview.findMany({
+      where: { role: { not: '' } },
+      select: { role: true },
+      distinct: ['role'],
+      orderBy: { role: 'asc' },
+    });
+    return rows.map(r => r.role).filter(Boolean);
+  });
+
   fastify.get<{ Params: { id: string } }>(
     '/interviews/:id',
     async (request, reply) => {

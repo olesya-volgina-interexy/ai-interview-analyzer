@@ -1,6 +1,6 @@
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
 import { X } from 'lucide-react';
 
 interface Filters {
@@ -16,106 +16,156 @@ interface InterviewFiltersProps {
   value: Filters;
   onChange: (v: Filters) => void;
   managers?: string[];
+  roles?: string[];
 }
 
-const STAGE_LABELS: Record<string, string> = {
-  manager_call: 'Manager Call',
-  technical: 'Technical',
+const ACTIVE_COLORS: Record<string, string> = {
+  role:        '#534AB7',
+  level:       '#185FA5',
+  stage:       '#0F6E56',
+  decision:    '#3B6D11',
+  managerName: '#854F0B',
 };
 
-const DECISION_LABELS: Record<string, string> = {
-  hired: 'Hired',
-  rejected: 'Rejected',
-};
+const ALL = '__all__';
 
-export function InterviewFilters({ value, onChange, managers = [] }: InterviewFiltersProps) {
-  const set = (key: keyof Filters, val: string | null) =>
-    onChange({ ...value, [key]: !val || val === 'all' ? undefined : val });
+function FilterSelect({
+  filterKey,
+  value,
+  options,
+  placeholder,
+  onChange,
+  triggerClass,
+}: {
+  filterKey: string;
+  value: string | undefined;
+  options: { value: string; label: string }[];
+  placeholder: string;
+  onChange: (v: string | undefined) => void;
+  triggerClass?: string;
+}) {
+  const isActive = !!value;
+  const color = ACTIVE_COLORS[filterKey] ?? '#334155';
+  const activeLabel = isActive
+    ? options.find(o => o.value === value)?.label ?? value
+    : placeholder;
+
+  return (
+    <Select
+      value={value ?? ALL}
+      onValueChange={(v: string | null) => onChange(!v || v === ALL ? undefined : v)}
+    >
+      <SelectTrigger
+        className={cn(
+          'h-8 w-auto rounded-full border px-3 text-sm transition-colors',
+          isActive
+            ? 'border-transparent text-white hover:opacity-90 [&_svg]:!text-white/70'
+            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 [&_svg]:!text-slate-400',
+          triggerClass
+        )}
+        style={isActive ? { background: color, color: 'white' } : undefined}
+      >
+        <SelectValue>{activeLabel}</SelectValue>
+      </SelectTrigger>
+      <SelectContent className="rounded-xl shadow-lg ring-slate-200/70 p-1 min-w-40">
+        <SelectItem value={ALL} className="rounded-lg text-slate-500">
+          {placeholder}
+        </SelectItem>
+        {options.map(o => (
+          <SelectItem key={o.value} value={o.value} className="rounded-lg">
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+export function InterviewFilters({ value, onChange, managers = [], roles = [] }: InterviewFiltersProps) {
+  const set = (key: keyof Filters, val: string | undefined) =>
+    onChange({ ...value, [key]: val });
 
   const reset = () => onChange({});
-
   const hasActiveFilters = Object.values(value).some(Boolean);
 
   return (
-    <div className="grid grid-cols-2 sm:flex sm:flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
+      <FilterSelect
+        filterKey="role"
+        value={value.role}
+        placeholder="All Roles"
+        options={roles.length > 0
+          ? roles.map(r => ({ value: r, label: r }))
+          : ['Backend','Frontend','Fullstack','DevOps','QA','Mobile'].map(r => ({ value: r, label: r }))
+        }
+        onChange={v => set('role', v)}
+        triggerClass="min-w-96"
+      />
 
-      <Select value={value.role ?? 'all'} onValueChange={v => set('role', v)}>
-        <SelectTrigger className="w-full sm:w-36 h-8 text-sm">
-          <SelectValue>{value.role ?? 'All Roles'}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All Roles</SelectItem>
-          {['Backend', 'Frontend', 'Fullstack', 'DevOps', 'QA', 'Mobile'].map(r => (
-            <SelectItem key={r} value={r}>{r}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <FilterSelect
+        filterKey="level"
+        value={value.level}
+        placeholder="All Levels"
+        options={['Junior','Middle','Senior'].map(l => ({ value: l, label: l }))}
+        onChange={v => set('level', v)}
+        triggerClass="min-w-40"
+      />
 
-      <Select value={value.level ?? 'all'} onValueChange={v => set('level', v)}>
-        <SelectTrigger className="w-full sm:w-32 h-8 text-sm">
-          <SelectValue>{value.level ?? 'All Levels'}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All Levels</SelectItem>
-          {['Junior', 'Middle', 'Senior'].map(l => (
-            <SelectItem key={l} value={l}>{l}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <FilterSelect
+        filterKey="stage"
+        value={value.stage}
+        placeholder="All Stages"
+        options={[
+          { value: 'manager_call', label: 'Manager Call' },
+          { value: 'technical', label: 'Technical' },
+          { value: 'final_result', label: 'Final Result' },
+        ]}
+        onChange={v => set('stage', v)}
+        triggerClass="min-w-40"
+      />
 
-      <Select value={value.stage ?? 'all'} onValueChange={v => set('stage', v)}>
-        <SelectTrigger className="w-full sm:w-36 h-8 text-sm">
-          <SelectValue>{value.stage ? STAGE_LABELS[value.stage] : 'All Stages'}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All Stages</SelectItem>
-          <SelectItem value="manager_call">Manager Call</SelectItem>
-          <SelectItem value="technical">Technical</SelectItem>
-        </SelectContent>
-      </Select>
-
-      <Select value={value.decision ?? 'all'} onValueChange={v => set('decision', v)}>
-        <SelectTrigger className="w-full sm:w-36 h-8 text-sm">
-          <SelectValue>{value.decision ? DECISION_LABELS[value.decision] : 'All Decisions'}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All Decisions</SelectItem>
-          <SelectItem value="hired">Hired</SelectItem>
-          <SelectItem value="rejected">Rejected</SelectItem>
-        </SelectContent>
-      </Select>
-
-      <Input
-        value={value.clientName ?? ''}
-        onChange={e => onChange({ ...value, clientName: e.target.value || undefined })}
-        placeholder="Search by client..."
-        className="w-full sm:w-44 h-8 text-sm"
+      <FilterSelect
+        filterKey="decision"
+        value={value.decision}
+        placeholder="All Decisions"
+        options={[
+          { value: 'hired', label: 'Hired' },
+          { value: 'rejected', label: 'Rejected' },
+        ]}
+        onChange={v => set('decision', v)}
+        triggerClass="min-w-40"
       />
 
       {managers.length > 0 && (
-        <Select value={value.managerName ?? 'all'} onValueChange={v => set('managerName', v)}>
-          <SelectTrigger className="w-full sm:w-40 h-8 text-sm">
-            <SelectValue>{value.managerName ?? 'All Managers'}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Managers</SelectItem>
-            {managers.map(m => (
-              <SelectItem key={m} value={m}>{m}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <FilterSelect
+          filterKey="managerName"
+          value={value.managerName}
+          placeholder="All Managers"
+          options={managers.map(m => ({ value: m, label: m }))}
+          onChange={v => set('managerName', v)}
+          triggerClass="min-w-40"
+        />
       )}
 
+      <Input
+        value={value.clientName ?? ''}
+        onChange={e => set('clientName', e.target.value || undefined)}
+        placeholder="Search by client..."
+        className="h-8 text-sm rounded-full flex-1 min-w-44 transition-colors"
+        style={value.clientName
+          ? { background: '#185FA5', color: 'white', borderColor: 'transparent' }
+          : {}
+        }
+      />
+
       {hasActiveFilters && (
-        <Button
-          variant="ghost"
-          size="sm"
+        <button
           onClick={reset}
-          className="col-span-2 sm:col-span-1 h-8 gap-1.5 text-slate-500 hover:text-slate-700"
+          className="h-8 px-3 flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors rounded-full border border-dashed border-slate-200 hover:border-slate-300"
         >
-          <X size={14} />
-          Clear filters
-        </Button>
+          <X size={12} />
+          Clear
+        </button>
       )}
     </div>
   );

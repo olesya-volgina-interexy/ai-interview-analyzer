@@ -155,12 +155,12 @@ export function ManagerCallResult({ analysis }: { analysis: ManagerCallAnalysis 
       </Card>
 
       {/* Recommendation for Recruiter */}
-      <Card className="border-blue-200 bg-blue-50">
+      <Card className="border-[#5067F4]/20 bg-[#5067F4]/5">
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm text-blue-800">📋 Recommendation for Recruiter</CardTitle>
+          <CardTitle className="text-sm text-[#5067F4]">📋 Recommendation for Recruiter</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-blue-800">{analysis.recommendation}</p>
+          <p className="text-sm text-[#5067F4]/80">{analysis.recommendation}</p>
         </CardContent>
       </Card>
 

@@ -118,6 +118,9 @@ export const interviewsApi = {
   getManagers: () =>
     api.get<string[]>('/interviews/managers'),
 
+  getRoles: () =>
+    api.get<string[]>('/interviews/roles'),
+
   getById: (id: string) =>
     api.get<InterviewDetail>(`/interviews/${id}`),
 

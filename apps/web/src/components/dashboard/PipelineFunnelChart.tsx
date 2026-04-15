@@ -7,7 +7,6 @@ interface PipelineData {
   reachedFinalResult: number;
   hired: number;
   conversion: {
-    requestToManagerCall: number;
     managerCallToTechnical: number;
     technicalToHired: number;
   };
@@ -47,7 +46,6 @@ export function PipelineFunnelChart({ pipeline }: { pipeline: PipelineData }) {
           </BarChart>
         </ResponsiveContainer>
         <div className="flex gap-4 mt-3 text-xs text-slate-500 flex-wrap">
-          <span>→ Manager Call: <b className="text-slate-700">{pipeline.conversion.requestToManagerCall}%</b></span>
           <span>→ Technical: <b className="text-slate-700">{pipeline.conversion.managerCallToTechnical}%</b></span>
           <span>→ Hired: <b className="text-slate-700">{pipeline.conversion.technicalToHired}%</b></span>
         </div>

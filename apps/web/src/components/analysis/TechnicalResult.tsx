@@ -28,7 +28,7 @@ export function TechnicalResult({ analysis }: { analysis: TechnicalAnalysis }) {
           <div className="flex items-center gap-2">
             <div className="w-24 bg-slate-200 rounded-full h-2">
               <div
-                className="bg-blue-500 h-2 rounded-full"
+                className="bg-[#5067F4] h-2 rounded-full"
                 style={{ width: `${analysis.score}%` }}
               />
             </div>

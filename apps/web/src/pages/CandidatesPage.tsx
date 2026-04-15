@@ -1,16 +1,89 @@
-import { useState, useEffect  } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
-import { candidatesApi } from '@/api/client';
-import { Input } from '@/components/ui/input';
+import { candidatesApi, interviewsApi } from '@/api/client';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
-import { Search } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { cn } from '@/lib/utils';
+import { Search, X } from 'lucide-react';
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', {
     day: '2-digit', month: 'short', year: 'numeric',
   });
+}
+
+const AVATAR_COLORS = [
+  { bg: '#E6F1FB', color: '#185FA5' },
+  { bg: '#EEEDFE', color: '#534AB7' },
+  { bg: '#EAF3DE', color: '#3B6D11' },
+  { bg: '#FAEEDA', color: '#854F0B' },
+  { bg: '#E1F5EE', color: '#0F6E56' },
+  { bg: '#FBEAF0', color: '#993556' },
+];
+
+function getAvatarColor(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+function getInitials(name: string) {
+  return name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+}
+
+const ACTIVE_COLORS: Record<string, string> = {
+  role:   '#534AB7',
+  result: '#3B6D11',
+};
+
+const ALL = '__all__';
+
+function FilterSelect({
+  filterKey, value, options, placeholder, onChange, triggerClass,
+}: {
+  filterKey: string;
+  value: string;
+  options: { value: string; label: string }[];
+  placeholder: string;
+  onChange: (v: string) => void;
+  triggerClass?: string;
+}) {
+  const isActive = !!value;
+  const color = ACTIVE_COLORS[filterKey] ?? '#334155';
+  const activeLabel = isActive
+    ? options.find(o => o.value === value)?.label ?? value
+    : placeholder;
+
+  return (
+    <Select
+      value={value || ALL}
+      onValueChange={(v: string | null) => onChange(!v || v === ALL ? '' : v)}
+    >
+      <SelectTrigger
+        className={cn(
+          'h-8 w-auto rounded-full border px-3 text-sm transition-colors',
+          isActive
+            ? 'border-transparent text-white hover:opacity-90 [&_svg]:!text-white/70'
+            : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 [&_svg]:!text-slate-400',
+          triggerClass
+        )}
+        style={isActive ? { background: color, color: 'white' } : undefined}
+      >
+        <SelectValue>{activeLabel}</SelectValue>
+      </SelectTrigger>
+      <SelectContent className="rounded-xl shadow-lg ring-slate-200/70 p-1 min-w-40">
+        <SelectItem value={ALL} className="rounded-lg text-slate-500">
+          {placeholder}
+        </SelectItem>
+        {options.map(o => (
+          <SelectItem key={o.value} value={o.value} className="rounded-lg">
+            {o.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 export function CandidatesPage() {
@@ -20,16 +93,13 @@ export function CandidatesPage() {
   const [page, setPage] = useState(1);
   const limit = 20;
   const fetchLimit = limit + 1;
-  const [roleFilter, setRoleFilter] = useState<string>('');
-  const [resultFilter, setResultFilter] = useState<'all' | 'hired' | 'not_hired'>('all');
+  const [roleFilter, setRoleFilter] = useState('');
+  const [resultFilter, setResultFilter] = useState('');
   const [sortKey, setSortKey] = useState<'totalInterviews' | 'avgScore' | 'lastInterviewAt'>('lastInterviewAt');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(search);
-      setPage(1);
-    }, 300);
+    const timer = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 300);
     return () => clearTimeout(timer);
   }, [search]);
 
@@ -39,7 +109,7 @@ export function CandidatesPage() {
   };
 
   const SortIcon = ({ k }: { k: typeof sortKey }) => (
-    <span className="ml-1 text-slate-300">
+    <span className="ml-1" style={{ color: sortKey === k ? '#534AB7' : '#cbd5e1' }}>
       {sortKey === k ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
     </span>
   );
@@ -51,8 +121,13 @@ export function CandidatesPage() {
       page,
       limit: fetchLimit,
       role: roleFilter || undefined,
-      result: resultFilter === 'all' ? undefined : resultFilter,
+      result: (resultFilter as any) || undefined,
     }).then(r => r.data),
+  });
+
+  const { data: roles } = useQuery({
+    queryKey: ['interviews', 'roles'],
+    queryFn: () => interviewsApi.getRoles().then(r => r.data),
   });
 
   const sorted = [...(data ?? [])].sort((a, b) => {
@@ -63,51 +138,57 @@ export function CandidatesPage() {
     return 0;
   });
 
+  const hasFilters = !!roleFilter || !!resultFilter || !!search;
+
   return (
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Candidates</h1>
-        <span className="text-sm text-slate-500">{data?.length ?? 0} records</span>
+        <span className="text-sm text-slate-400">{data?.length ?? 0} records</span>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative w-full sm:w-64">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <Input
+        <div className="relative">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search by name..."
-            className="pl-8 h-8 text-sm"
+            className="h-8 pl-8 pr-3 text-sm rounded-full border border-slate-200 outline-none w-52 transition-colors"
+            style={search ? { background: '#185FA5', color: 'white', borderColor: 'transparent' } : { background: 'white', color: '#475569' }}
           />
         </div>
 
-        <select
+        <FilterSelect
+          filterKey="role"
           value={roleFilter}
-          onChange={e => { setRoleFilter(e.target.value); setPage(1); }}
-          className="h-8 text-sm border border-slate-200 rounded-md px-2 bg-white text-slate-600"
-        >
-          <option value="">All Roles</option>
-          {['Backend', 'Frontend', 'Fullstack', 'DevOps', 'QA', 'Mobile'].map(r => (
-            <option key={r} value={r}>{r}</option>
-          ))}
-        </select>
+          placeholder="All Roles"
+          options={(roles && roles.length > 0
+            ? roles
+            : ['Backend','Frontend','Fullstack','DevOps','QA','Mobile']
+          ).map(r => ({ value: r, label: r }))}
+          onChange={v => { setRoleFilter(v); setPage(1); }}
+          triggerClass="min-w-96"
+        />
 
-        <select
+        <FilterSelect
+          filterKey="result"
           value={resultFilter}
-          onChange={e => { setResultFilter(e.target.value as any); setPage(1); }}
-          className="h-8 text-sm border border-slate-200 rounded-md px-2 bg-white text-slate-600"
-        >
-          <option value="all">All Results</option>
-          <option value="hired">Hired</option>
-          <option value="not_hired">Not Hired</option>
-        </select>
+          placeholder="All Results"
+          options={[
+            { value: 'hired', label: 'Hired' },
+            { value: 'not_hired', label: 'Not Hired' },
+          ]}
+          onChange={v => { setResultFilter(v); setPage(1); }}
+          triggerClass="min-w-40"
+        />
 
-        {(roleFilter || resultFilter !== 'all') && (
+        {hasFilters && (
           <button
-            onClick={() => { setRoleFilter(''); setResultFilter('all'); setPage(1); }}
-            className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+            onClick={() => { setSearch(''); setRoleFilter(''); setResultFilter(''); setPage(1); }}
+            className="h-8 px-3 flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors rounded-full border border-dashed border-slate-200 hover:border-slate-300"
           >
-            Clear filters
+            <X size={12} /> Clear
           </button>
         )}
       </div>
@@ -116,99 +197,127 @@ export function CandidatesPage() {
         <div className="space-y-2">
           {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-md" />)}
         </div>
-      ) : !data?.length ? (
+      ) : !sorted.length ? (
         <div className="rounded-md border border-dashed p-12 text-center">
           <p className="text-sm text-slate-500">No candidates found.</p>
         </div>
       ) : (
-        <div className="rounded-md border overflow-hidden">
+        <div className="rounded-xl border border-slate-200 overflow-hidden">
           <table className="w-full text-sm table-fixed">
-            <thead className="bg-slate-50 border-b">
-              <tr>
-                <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[20%]">Candidate</th>
-                <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[27%]">Roles</th>
+            <thead>
+              <tr style={{ background: '#EEF0FE', borderBottom: '0.5px solid #D9DEFB' }}>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[22%]" style={{ color: '#3D52D9' }}>Candidate</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[28%]" style={{ color: '#3D52D9' }}>Roles</th>
                 <th
                   onClick={() => toggleSort('totalInterviews')}
-                  className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[12%] cursor-pointer hover:text-slate-700 select-none"
+                  className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[12%] cursor-pointer select-none"
+                  style={{ color: '#3D52D9' }}
                 >
                   Interviews<SortIcon k="totalInterviews" />
                 </th>
-                <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[11%]">Hired</th>
-                <th className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[11%]">Rejected</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[10%]" style={{ color: '#3D52D9' }}>Hired</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[10%]" style={{ color: '#3D52D9' }}>Rejected</th>
                 <th
                   onClick={() => toggleSort('avgScore')}
-                  className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[10%] cursor-pointer hover:text-slate-700 select-none"
+                  className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[10%] cursor-pointer select-none"
+                  style={{ color: '#3D52D9' }}
                 >
-                  Avg Score<SortIcon k="avgScore" />
+                  Score<SortIcon k="avgScore" />
                 </th>
                 <th
                   onClick={() => toggleSort('lastInterviewAt')}
-                  className="text-left px-3 py-3 text-xs font-medium text-slate-500 uppercase tracking-wide w-[12%] cursor-pointer hover:text-slate-700 select-none"
+                  className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[12%] cursor-pointer select-none"
+                  style={{ color: '#3D52D9' }}
                 >
-                  Last Interview<SortIcon k="lastInterviewAt" />
+                  Last<SortIcon k="lastInterviewAt" />
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {sorted.slice(0, limit).map(c => (
-                <tr
-                  key={c.candidateName}
-                  onClick={() => navigate({ to: '/candidates/$name', params: { name: c.candidateName } })}
-                  className="hover:bg-slate-50 cursor-pointer transition-colors"
-                >
-                  <td className="px-3 py-3 font-medium text-slate-900 truncate">
-                    {c.candidateName}
-                  </td>
-                  <td className="px-3 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {c.roles.slice(0, 2).map(r => (
-                        <Badge key={r} className="bg-slate-100 text-slate-600 text-xs">{r}</Badge>
-                      ))}
-                      {c.roles.length > 2 && (
-                        <span className="text-xs text-slate-400">+{c.roles.length - 2}</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-3 py-3 text-slate-600">{c.totalInterviews}</td>
-                  <td className="px-3 py-3">
-                    {c.successful > 0
-                      ? <span className="text-green-600 font-medium">{c.successful}</span>
-                      : <span className="text-slate-400">—</span>}
-                  </td>
-                  <td className="px-3 py-3">
-                    {c.failed > 0
-                      ? <span className="text-red-500 font-medium">{c.failed}</span>
-                      : <span className="text-slate-400">—</span>}
-                  </td>
-                  <td className="px-3 py-3 text-slate-600">
-                    {c.avgScore !== null ? `${c.avgScore}/100` : '—'}
-                  </td>
-                  <td className="px-3 py-3 text-slate-500 whitespace-nowrap">
-                    {formatDate(c.lastInterviewAt)}
-                  </td>
-                </tr>
-              ))}
+            <tbody>
+              {sorted.slice(0, limit).map((c, idx) => {
+                const avatar = getAvatarColor(c.candidateName);
+                const scoreColor = c.avgScore !== null
+                  ? c.avgScore >= 80 ? '#3B6D11' : c.avgScore >= 60 ? '#854F0B' : '#A32D2D'
+                  : undefined;
+
+                return (
+                  <tr
+                    key={c.candidateName}
+                    onClick={() => navigate({ to: '/candidates/$name', params: { name: c.candidateName } })}
+                    className="cursor-pointer transition-colors"
+                    style={{ borderBottom: idx < sorted.slice(0, limit).length - 1 ? '0.5px solid var(--color-border-tertiary)' : 'none' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-background-secondary)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium"
+                          style={{ background: avatar.bg, color: avatar.color }}
+                        >
+                          {getInitials(c.candidateName)}
+                        </div>
+                        <span className="font-medium truncate" style={{ color: 'var(--color-text-primary)' }}>
+                          {c.candidateName}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {c.roles.slice(0, 2).map(r => (
+                          <span key={r} className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#e8edf1', color: '#4b4b4b' }}>
+                            {r}
+                          </span>
+                        ))}
+                        {c.roles.length > 2 && (
+                          <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>+{c.roles.length - 2}</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3" style={{ color: 'var(--color-text-secondary)' }}>{c.totalInterviews}</td>
+                    <td className="px-4 py-3">
+                      {c.successful > 0
+                        ? <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: '#EAF3DE', color: '#3B6D11' }}>{c.successful}</span>
+                        : <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      {c.failed > 0
+                        ? <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: '#FCEBEB', color: '#A32D2D' }}>{c.failed}</span>
+                        : <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      {c.avgScore !== null
+                        ? <><span className="font-medium" style={{ color: scoreColor }}>{c.avgScore}</span><span style={{ color: 'var(--color-text-tertiary)' }}>/100</span></>
+                        : <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap" style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>
+                      {formatDate(c.lastInterviewAt)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+
           {(page > 1 || (data && data.length > limit)) && (
-                <div className="flex items-center justify-center gap-3 pt-2">
-                <button
-                    onClick={() => setPage(p => Math.max(1, p - 1))}
-                    disabled={page === 1}
-                    className="text-sm px-3 py-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                    ← Previous
-                </button>
-                <span className="text-sm text-slate-500">Page {page}</span>
-                <button
-                    onClick={() => setPage(p => p + 1)}
-                    disabled={(data?.length ?? 0) < limit}
-                    className="text-sm px-3 py-1.5 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                    Next →
-                </button>
-                </div>
-            )}
+            <div className="flex items-center justify-center gap-3 p-3 border-t border-slate-100">
+              <button
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="text-sm px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                ← Previous
+              </button>
+              <span className="text-sm text-slate-400">Page {page}</span>
+              <button
+                onClick={() => setPage(p => p + 1)}
+                disabled={(data?.length ?? 0) <= limit}
+                className="text-sm px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Next →
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

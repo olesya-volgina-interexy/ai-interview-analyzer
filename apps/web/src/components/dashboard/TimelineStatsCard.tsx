@@ -8,13 +8,37 @@ interface TimingData {
   trend: Array<{ month: string; count: number }>;
 }
 
-function StatRow({ label, value }: { label: string; value: number | null }) {
+interface StatCardProps {
+  label: string;
+  value: number | null;
+  accent?: boolean;
+}
+
+function StatCard({ label, value, accent }: StatCardProps) {
   return (
-    <div className="flex justify-between items-center py-1.5 border-b border-slate-100 last:border-0">
-      <span className="text-sm text-slate-500">{label}</span>
-      <span className="text-sm font-medium text-slate-800">
-        {value !== null ? `${value} days` : '—'}
-      </span>
+    <div
+      className="rounded-lg p-3"
+      style={accent
+        ? { background: '#E6F1FB' }
+        : { background: 'var(--color-background-secondary)' }
+      }
+    >
+      <p className="text-xs mb-1.5 leading-tight" style={{ color: accent ? '#185FA5' : 'var(--color-text-tertiary)' }}>
+        {label}
+      </p>
+      <div className="flex items-baseline gap-1">
+        <span
+          className="text-2xl font-medium leading-none"
+          style={{ color: accent ? '#0C447C' : 'var(--color-text-primary)' }}
+        >
+          {value !== null ? value : '—'}
+        </span>
+        {value !== null && (
+          <span className="text-xs" style={{ color: accent ? '#185FA5' : 'var(--color-text-tertiary)' }}>
+            days avg
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -26,10 +50,10 @@ export function TimelineStatsCard({ timing }: { timing: TimingData }) {
         <CardTitle className="text-sm">Time on Stages</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div>
-          <StatRow label="Manager Call → Technical" value={timing.avgManagerToTechnicalDays} />
-          <StatRow label="Technical → Final Result" value={timing.avgTechnicalToFinalDays} />
-          <StatRow label="Total (first interview → hire)" value={timing.avgTotalDays} />
+        <div className="grid grid-cols-3 gap-2">
+          <StatCard label="Manager Call → Technical" value={timing.avgManagerToTechnicalDays} />
+          <StatCard label="Technical → Final Result" value={timing.avgTechnicalToFinalDays} />
+          <StatCard label="Total to hire" value={timing.avgTotalDays} accent />
         </div>
 
         {timing.trend.length > 1 && (
