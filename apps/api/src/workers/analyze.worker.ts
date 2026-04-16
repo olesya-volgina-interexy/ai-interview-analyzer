@@ -51,6 +51,12 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
         return;
       }
 
+      // Берём имя кандидата из предыдущих анализов
+      if (!meta.candidateName) {
+        const nameFromPrevious = previousAnalyses.find(a => a.candidateName)?.candidateName;
+        if (nameFromPrevious) meta.candidateName = nameFromPrevious;
+      }
+
       const previousContext = previousAnalyses
         .map(a => `=== ${a.stage.toUpperCase()} ===\n${JSON.stringify(a.analysis, null, 2)}`)
         .join('\n\n');

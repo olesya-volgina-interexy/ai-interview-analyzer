@@ -130,6 +130,7 @@ export async function getInterviewsByLinearIssueId(
       role: true,
       level: true,
       analysis: true,
+      candidateName: true,
     },
   });
 }
