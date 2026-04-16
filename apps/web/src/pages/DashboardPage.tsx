@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { BarChart2, BarChart3, Filter, Sparkles } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { interviewsApi, statsApi } from '@/api/client';
 import { StatsCards } from '@/components/dashboard/StatsCards';
 import { Charts } from '@/components/dashboard/Charts';
@@ -37,6 +37,9 @@ export function DashboardPage() {
     queryKey: ['stats'],
     queryFn: () => interviewsApi.getStats().then(r => r.data),
   });
+  const queryClient = useQueryClient();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   const { data: overview } = useQuery({
     queryKey: ['stats', 'overview', dateRange],
     queryFn: () => statsApi.getOverview({
@@ -45,6 +48,17 @@ export function DashboardPage() {
     }).then(r => r.data),
     enabled: !!dateRange.from && !!dateRange.to,
   });
+
+  const handleRefreshRequests = useCallback(async () => {
+    setIsRefreshing(true);
+    const fresh = await statsApi.getOverview({
+      from: dateRange.from?.toISOString(),
+      to: dateRange.to?.toISOString(),
+      refresh: '1',
+    }).then(r => r.data);
+    queryClient.setQueryData(['stats', 'overview', dateRange], fresh);
+    setIsRefreshing(false);
+  }, [dateRange, queryClient]);
 
   const isEmpty = !statsLoading && stats?.total === 0;
 
@@ -99,9 +113,11 @@ export function DashboardPage() {
               {overview ? (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    <RequestsStatsCard 
-                      requests={overview.requests} 
-                      period={periodLabel} 
+                    <RequestsStatsCard
+                      requests={overview.requests}
+                      period={periodLabel}
+                      onRefresh={handleRefreshRequests}
+                      isRefreshing={isRefreshing}
                     />
                     <PipelineFunnelChart pipeline={overview.pipeline} />
                   </div>

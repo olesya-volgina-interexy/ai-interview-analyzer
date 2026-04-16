@@ -184,6 +184,7 @@ export interface CandidateDetail {
   failed: number;
   avgScore: number | null;
   roles: string[];
+  topStrengths: Array<{ text: string; count: number }>;
   topWeaknesses: Array<{ text: string; count: number }>;
   topDecisionBreakers: Array<{ text: string; count: number }>;
   interviews: Array<{
@@ -210,6 +211,6 @@ export const candidatesApi = {
 };
 
 export const statsApi = {
-  getOverview: (params?: { from?: string; to?: string }) =>
+  getOverview: (params?: { from?: string; to?: string; refresh?: string }) =>
     api.get<StatsOverview>('/stats/overview', { params }),
 };

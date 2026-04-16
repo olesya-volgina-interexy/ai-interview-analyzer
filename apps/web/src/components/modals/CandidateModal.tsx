@@ -1,7 +1,6 @@
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Trash2, Download } from 'lucide-react';
 import { interviewsApi } from '@/api/client';
@@ -13,8 +12,23 @@ interface CandidateModalProps {
   onClose: () => void;
 }
 
+const AVATAR_COLORS = [
+  { bg: '#E6F1FB', color: '#185FA5' },
+  { bg: '#EEEDFE', color: '#534AB7' },
+  { bg: '#EAF3DE', color: '#3B6D11' },
+  { bg: '#FAEEDA', color: '#854F0B' },
+  { bg: '#E1F5EE', color: '#0F6E56' },
+];
+
+function getAvatarStyle(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
 export function CandidateModal({ interviewId, open, onClose }: CandidateModalProps) {
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState('analysis');
 
   const { data, isLoading } = useQuery({
     queryKey: ['interview', interviewId],
@@ -25,7 +39,6 @@ export function CandidateModal({ interviewId, open, onClose }: CandidateModalPro
   const deleteMutation = useMutation({
     mutationFn: () => interviewsApi.delete(interviewId!),
     onSuccess: () => {
-      // Обновить список интервью
       queryClient.invalidateQueries({ queryKey: ['interviews'] });
       onClose();
     },
@@ -39,8 +52,6 @@ export function CandidateModal({ interviewId, open, onClose }: CandidateModalPro
 
   const handleSavePDF = () => {
     if (!data) return;
-
-    // Формируем текстовый контент для печати
     const analysis = data.analysis as any;
     const content = `
 INTERVIEW ANALYSIS REPORT
@@ -66,23 +77,16 @@ ${(analysis?.weaknesses ?? []).map((w: string) => `• ${w}`).join('\n')}
 REASONING:
 ${analysis?.reasoning ?? '—'}
 
-${analysis?.decisionBreakers?.length > 0 ? `
-DECISION BREAKERS:
-${analysis.decisionBreakers.map((d: string) => `• ${d}`).join('\n')}
-` : ''}
+${analysis?.decisionBreakers?.length > 0 ? `DECISION BREAKERS:\n${analysis.decisionBreakers.map((d: string) => `• ${d}`).join('\n')}` : ''}
     `.trim();
 
-    // Открыть диалог печати браузера
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
-
     printWindow.document.write(`
       <html>
         <head>
           <title>Analysis — ${data.candidateName ?? 'Candidate'}</title>
-          <style>
-            body { font-family: monospace; white-space: pre-wrap; padding: 40px; font-size: 13px; line-height: 1.6; }
-          </style>
+          <style>body { font-family: monospace; white-space: pre-wrap; padding: 40px; font-size: 13px; line-height: 1.6; }</style>
         </head>
         <body>${content}</body>
       </html>
@@ -91,117 +95,181 @@ ${analysis.decisionBreakers.map((d: string) => `• ${d}`).join('\n')}
     printWindow.print();
   };
 
+  const tabs = data ? [
+    { value: 'analysis', label: 'Analysis' },
+    { value: 'transcript', label: 'Transcript' },
+    ...(data.cvText ? [{ value: 'cv', label: 'CV' }] : []),
+    ...(data.brokerRequest ? [{ value: 'broker', label: 'Broker Request' }] : []),
+    ...(data.questions?.length ? [{ value: 'questions', label: 'Questions' }] : []),
+  ] : [];
+
+  const avatarStyle = data?.candidateName ? getAvatarStyle(data.candidateName) : null;
+  const initials = data?.candidateName
+    ? data.candidateName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
+    : '?';
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto scrollbar-thin">
-        <DialogHeader>
-          <div className="flex flex-col gap-2 pr-8 sm:flex-row sm:items-start sm:justify-between">
+      <DialogContent className="w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto scrollbar-thin p-0 [&>button]:hidden">
+
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-5 py-4 flex-shrink-0"
+        >
+          <div className="flex items-center gap-3">
+            {isLoading ? (
+              <Skeleton className="w-9 h-9 rounded-full flex-shrink-0" />
+            ) : avatarStyle ? (
+              <div
+                className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-medium flex-shrink-0"
+                style={{ background: avatarStyle.bg, color: avatarStyle.color }}
+              >
+                {initials}
+              </div>
+            ) : null}
             <div>
-              <DialogTitle>
+              <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
                 {isLoading ? '...' : (data?.candidateName ?? 'Candidate')}
-              </DialogTitle>
+              </h2>
               {data && (
-                <p className="text-sm text-slate-500 mt-0.5">
-                  {data.role} {data.level} • {data.clientName ?? '—'} • {new Date(data.createdAt).toLocaleDateString()}
+                <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
+                  {data.role} {data.level} · {data.clientName ?? '—'} · {new Date(data.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                 </p>
               )}
             </div>
+          </div>
 
-            {/* Кнопки действий */}
+          <div className="flex items-center gap-2 flex-shrink-0">
             {data && (
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <Button
-                  variant="outline"
-                  size="sm"
+              <>
+                <button
                   onClick={handleSavePDF}
-                  className="gap-1.5"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors"
+                  style={{ border: '0.5px solid var(--color-border-tertiary)', color: 'var(--color-text-secondary)', background: 'var(--color-background-primary)' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-background-secondary)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'var(--color-background-primary)')}
                 >
-                  <Download size={14} />
+                  <Download size={13} />
                   Save as PDF
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
+                </button>
+                <button
                   onClick={handleDelete}
                   disabled={deleteMutation.isPending}
-                  className="gap-1.5 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors"
+                  style={{ border: '0.5px solid #FECACA', color: '#DC2626', background: 'var(--color-background-primary)' }}
+                  onMouseEnter={e => (e.currentTarget.style.background = '#FEF2F2')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'var(--color-background-primary)')}
                 >
-                  <Trash2 size={14} />
+                  <Trash2 size={13} />
                   {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
-                </Button>
-              </div>
+                </button>
+              </>
             )}
+            <button
+              onClick={onClose}
+              className="flex items-center justify-center w-7 h-7 rounded-md text-xs transition-colors ml-1"
+              style={{ color: 'var(--color-text-tertiary)', background: 'transparent' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-background-secondary)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            >
+              ✕
+            </button>
           </div>
-        </DialogHeader>
+        </div>
 
-        {isLoading && <Skeleton className="h-64 w-full" />}
+        {isLoading && <Skeleton className="h-64 w-full m-5" />}
 
         {data && (
-          <Tabs defaultValue="analysis">
-            <TabsList className="w-full">
-              <TabsTrigger value="analysis">Analysis</TabsTrigger>
-              <TabsTrigger value="transcript">Transcript</TabsTrigger>
-              {data.cvText && <TabsTrigger value="cv">CV</TabsTrigger>}
-              {data.brokerRequest && <TabsTrigger value="broker">Broker Request</TabsTrigger>}
-              {data.questions && data.questions.length > 0 && (
-                <TabsTrigger value="questions">Questions</TabsTrigger>
+          <div>
+            {/* Tabs nav */}
+            <div
+              className="flex overflow-x-auto rounded-lg bg-muted mx-5"
+            >
+              {tabs.map(tab => (
+                <button
+                  key={tab.value}
+                  onClick={() => setActiveTab(tab.value)}
+                  className="flex-1 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap text-center"
+                  style={{
+                    color: activeTab === tab.value ? 'hsl(var(--primary))' : 'var(--color-text-tertiary)',
+                  }}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab content */}
+            <div className="p-5">
+
+              {activeTab === 'analysis' && (
+                <AnalysisResult analysis={data.analysis} />
               )}
-            </TabsList>
 
-            <TabsContent value="analysis" className="mt-4">
-              <AnalysisResult analysis={data.analysis} />
-            </TabsContent>
+              {activeTab === 'transcript' && (
+                <pre
+                  className="text-sm whitespace-pre-wrap p-4 rounded-lg max-h-96 overflow-y-auto scrollbar-thin"
+                  style={{ background: 'var(--color-background-secondary)', color: 'var(--color-text-secondary)' }}
+                >
+                  {data.transcript}
+                </pre>
+              )}
 
-            <TabsContent value="transcript" className="mt-4">
-              <pre className="text-sm text-slate-700 whitespace-pre-wrap bg-slate-50 p-4 rounded-md max-h-96 overflow-y-auto">
-                {data.transcript}
-              </pre>
-            </TabsContent>
-
-            {data.cvText && (
-              <TabsContent value="cv" className="mt-4">
-                <pre className="text-sm text-slate-700 whitespace-pre-wrap bg-slate-50 p-4 rounded-md max-h-96 overflow-y-auto">
+              {activeTab === 'cv' && data.cvText && (
+                <pre
+                  className="text-sm whitespace-pre-wrap p-4 rounded-lg max-h-96 overflow-y-auto scrollbar-thin"
+                  style={{ background: 'var(--color-background-secondary)', color: 'var(--color-text-secondary)' }}
+                >
                   {data.cvText}
                 </pre>
-              </TabsContent>
-            )}
+              )}
 
-            {data.brokerRequest && (
-              <TabsContent value="broker" className="mt-4">
-                <pre className="text-sm text-slate-700 whitespace-pre-wrap bg-slate-50 p-4 rounded-md max-h-96 overflow-y-auto">
+              {activeTab === 'broker' && data.brokerRequest && (
+                <pre
+                  className="text-sm whitespace-pre-wrap p-4 rounded-lg max-h-96 overflow-y-auto scrollbar-thin"
+                  style={{ background: 'var(--color-background-secondary)', color: 'var(--color-text-secondary)' }}
+                >
                   {data.brokerRequest}
                 </pre>
-              </TabsContent>
-            )}
-            {data.questions && data.questions.length > 0 && (
-              <TabsContent value="questions" className="mt-4">
-                <div className="space-y-3">
-                  {data.questions.map((q, i) => (
-                    <div key={i} className="border rounded-md p-3 bg-slate-50">
-                      <div className="flex items-start justify-between gap-2">
-                        <p className="text-sm text-slate-800 font-medium">{q.question}</p>
-                        {q.candidateHandled && (
-                          <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap font-medium ${
-                            q.candidateHandled === 'well' ? 'bg-green-100 text-green-800' :
-                            q.candidateHandled === 'partial' ? 'bg-yellow-100 text-yellow-800' :
-                            q.candidateHandled === 'poor' ? 'bg-red-100 text-red-800' :
-                            'bg-slate-100 text-slate-500'
-                          }`}>
-                            {q.candidateHandled}
-                          </span>
-                        )}
-                      </div>
-                      {q.topic && (
-                        <p className="text-xs text-slate-400 mt-1">{q.topic}</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </TabsContent>
-            )}
+              )}
 
-          </Tabs>
+              {activeTab === 'questions' && data.questions && data.questions.length > 0 && (
+                <div className="space-y-3">
+                  {data.questions.map((q, i) => {
+                    const handled = q.candidateHandled;
+                    const badge =
+                      handled === 'well'    ? { bg: '#EAF3DE', color: '#27500A' } :
+                      handled === 'partial' ? { bg: '#FAEEDA', color: '#633806' } :
+                      handled === 'poor'    ? { bg: '#FCEBEB', color: '#791F1F' } :
+                                              { bg: '#F1EFE8', color: '#5F5E5A' };
+
+                    return (
+                      <div key={i} className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          {q.topic ? (
+                            <p className="text-xs font-medium uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))', letterSpacing: '0.06em' }}>
+                              {q.topic}
+                            </p>
+                          ) : <span />}
+                          {handled && (
+                            <span className="text-xs font-medium px-2 py-0.5 rounded-md" style={{ background: badge.bg, color: badge.color }}>
+                              {handled}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm px-3 py-2 rounded-md leading-relaxed bg-muted" style={{ color: 'hsl(var(--foreground))' }}>
+                          {q.question}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+            </div>
+          </div>
         )}
+
       </DialogContent>
     </Dialog>
   );

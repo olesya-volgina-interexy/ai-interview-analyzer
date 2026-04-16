@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { RefreshCw } from 'lucide-react';
 
 interface RequestsData {
   total: number;
@@ -15,14 +16,19 @@ const STATUS_CONFIG: Record<string, { label: string; dot: string; bar: string }>
   in_progress: { label: 'In Progress', dot: 'bg-blue-400', bar: 'bg-blue-400' },
   new: { label: 'New', dot: 'bg-slate-300', bar: 'bg-slate-300' },
   rejected: { label: 'Rejected', dot: 'bg-red-400', bar: 'bg-red-400' },
+  lost: { label: 'Lost', dot: 'bg-slate-400', bar: 'bg-slate-400' },
 };
 
-export function RequestsStatsCard({ 
-  requests, 
-  period 
-}: { 
+export function RequestsStatsCard({
+  requests,
+  period,
+  onRefresh,
+  isRefreshing,
+}: {
   requests: RequestsData;
   period: string;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }) {
   return (
     <Card className="w-full border-none shadow-sm bg-white overflow-hidden">
@@ -30,8 +36,19 @@ export function RequestsStatsCard({
         <CardTitle className="text-[15px] font-semibold text-slate-800">
           Incoming requests
         </CardTitle>
-        <div className="px-3 py-1 rounded-full bg-slate-100 text-slate-500 text-xs font-medium whitespace-nowrap ml-2">
-          {period}
+        <div className="flex items-center gap-2">
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              className="flex items-center justify-center w-7 h-7 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+            >
+              <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+            </button>
+          )}
+          <div className="px-3 py-1 rounded-full bg-slate-100 text-slate-500 text-xs font-medium whitespace-nowrap">
+            {period}
+          </div>
         </div>
       </CardHeader>
       

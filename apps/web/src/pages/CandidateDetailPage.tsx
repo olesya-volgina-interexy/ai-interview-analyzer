@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CandidateModal } from '@/components/modals/CandidateModal';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Users, CheckCircle, XCircle, Target } from 'lucide-react';
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', {
@@ -29,25 +29,6 @@ const RESULT_STYLE: Record<string, string> = {
   on_hold: 'bg-slate-100 text-slate-600',
   uncertain: 'bg-yellow-100 text-yellow-800',
 };
-
-function BarList({ items, color }: { items: Array<{ text: string; count: number }>; color: string }) {
-  const max = Math.max(...items.map(i => i.count), 1);
-  return (
-    <div className="space-y-2">
-      {items.map((item, i) => (
-        <div key={i}>
-          <div className="flex justify-between text-xs text-slate-600 mb-0.5">
-            <span className="truncate pr-2 capitalize">{item.text}</span>
-            <span className="font-medium flex-shrink-0">{item.count}x</span>
-          </div>
-          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-            <div className="h-full rounded-full" style={{ width: `${(item.count / max) * 100}%`, background: color }} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 export function CandidateDetailPage() {
   const { name } = useParams({ from: '/candidates/$name' });
@@ -84,10 +65,6 @@ export function CandidateDetailPage() {
 
   if (!data) return null;
 
-  const scoreColor = data.avgScore !== null
-    ? data.avgScore >= 75 ? 'text-green-600' : data.avgScore >= 50 ? 'text-yellow-600' : 'text-red-500'
-    : 'text-slate-400';
-
   return (
     <div className="p-4 md:p-6 space-y-4">
 
@@ -95,9 +72,9 @@ export function CandidateDetailPage() {
       <div className="flex items-center gap-3">
         <button
           onClick={() => navigate({ to: '/candidates' })}
-          className="text-slate-400 hover:text-slate-600 transition-colors"
+          className="flex items-center justify-center w-11 h-11 rounded-lg bg-[#5067F4]/10 text-[#5067F4] hover:bg-[#5067F4]/20 transition-colors flex-shrink-0"
         >
-          <ArrowLeft size={18} />
+          <ArrowLeft size={22} />
         </button>
         <div>
           <h1 className="text-xl font-semibold text-slate-900">{data.candidateName}</h1>
@@ -110,28 +87,59 @@ export function CandidateDetailPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Total Interviews', value: data.totalInterviews, color: 'text-slate-800' },
-          { label: 'Hired', value: data.successful, color: 'text-green-600' },
-          { label: 'Rejected', value: data.failed, color: 'text-red-500' },
-          { label: 'Avg Score', value: data.avgScore !== null ? `${data.avgScore}/100` : '—', color: scoreColor },
-        ].map(({ label, value, color }) => (
-          <div key={label} className="bg-slate-50 rounded-lg p-3">
-            <p className="text-xs text-slate-400 mb-1">{label}</p>
-            <p className={`text-xl font-semibold ${color}`}>{value}</p>
-          </div>
+          { label: 'Total Interviews', value: data.totalInterviews, icon: <Users size={18} />, accent: 'bg-[#5067F4]/10 text-[#5067F4]' },
+          { label: 'Hired', value: data.successful, icon: <CheckCircle size={18} />, accent: 'bg-emerald-50 text-emerald-600' },
+          { label: 'Rejected', value: data.failed, icon: <XCircle size={18} />, accent: 'bg-red-50 text-red-500' },
+          { label: 'Avg Score', value: data.avgScore !== null ? `${data.avgScore}/100` : '—', icon: <Target size={18} />, accent: 'bg-violet-50 text-violet-600' },
+        ].map(({ label, value, icon, accent }) => (
+          <Card key={label}>
+            <CardContent>
+              <div className="flex items-start gap-3">
+                <div className={`flex-shrink-0 rounded-lg p-2 ${accent}`}>
+                  {icon}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</p>
+                  <p className="text-2xl font-bold text-slate-900 mt-0.5">{value}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
-      {/* Weaknesses & Decision Breakers */}
-      {(data.topWeaknesses.length > 0 || data.topDecisionBreakers.length > 0) && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {/* Strengths, Weaknesses & Decision Breakers */}
+      {(data.topStrengths?.length > 0 || data.topWeaknesses.length > 0 || data.topDecisionBreakers.length > 0) && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {data.topStrengths?.length > 0 && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Top Strengths</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-wrap gap-1.5">
+                  {data.topStrengths.map((item, i) => (
+                    <span key={i} className="text-xs font-medium px-2.5 py-1 rounded-md capitalize" style={{ background: '#EAF3DE', color: '#27500A' }}>
+                      {item.text} <span className="opacity-60">×{item.count}</span>
+                    </span>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
           {data.topWeaknesses.length > 0 && (
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm">Top Weaknesses</CardTitle>
               </CardHeader>
               <CardContent>
-                <BarList items={data.topWeaknesses} color="#f59e0b" />
+                <div className="flex flex-wrap gap-1.5">
+                  {data.topWeaknesses.map((item, i) => (
+                    <span key={i} className="text-xs font-medium px-2.5 py-1 rounded-md capitalize" style={{ background: '#FAEEDA', color: '#633806' }}>
+                      {item.text} <span className="opacity-60">×{item.count}</span>
+                    </span>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           )}
@@ -141,7 +149,13 @@ export function CandidateDetailPage() {
                 <CardTitle className="text-sm">Decision Breakers</CardTitle>
               </CardHeader>
               <CardContent>
-                <BarList items={data.topDecisionBreakers} color="#ef4444" />
+                <div className="flex flex-wrap gap-1.5">
+                  {data.topDecisionBreakers.map((item, i) => (
+                    <span key={i} className="text-xs font-medium px-2.5 py-1 rounded-md capitalize" style={{ background: '#FCEBEB', color: '#791F1F' }}>
+                      {item.text} <span className="opacity-60">×{item.count}</span>
+                    </span>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           )}
@@ -168,7 +182,7 @@ export function CandidateDetailPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {data.interviews.map(i => {
-                const result = i.recommendation ?? i.stageResult ?? i.decision;
+                const result = i.stageResult ?? i.decision ?? i.recommendation;
                 return (
                   <tr
                     key={i.id}

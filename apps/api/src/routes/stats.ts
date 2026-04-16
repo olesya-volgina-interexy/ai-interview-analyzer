@@ -7,7 +7,7 @@ const CACHE_TTL = 60 * 30; // 30 минут
 
 export async function statsRoutes(fastify: FastifyInstance) {
   fastify.get('/stats/overview', async (request) => {
-    const { from, to } = request.query as { from?: string; to?: string };
+    const { from, to, refresh } = request.query as { from?: string; to?: string; refresh?: string };
 
     const now = new Date();
     const fromDate = from ? new Date(from) : new Date(now.getFullYear(), now.getMonth(), 1);
@@ -15,14 +15,18 @@ export async function statsRoutes(fastify: FastifyInstance) {
 
     // Проверяем кеш
     const cacheKey = `stats:overview:${fromDate.toISOString()}:${toDate.toISOString()}`;
-    try {
-      const cached = await redis.get(cacheKey);
-      if (cached) {
-        fastify.log.info('Stats overview served from cache');
-        return JSON.parse(cached);
+    if (refresh === '1') {
+      try { await redis.del(cacheKey); } catch {}
+    } else {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          fastify.log.info('Stats overview served from cache');
+          return JSON.parse(cached);
+        }
+      } catch (err) {
+        fastify.log.warn({ err }, 'Redis cache read failed, proceeding without cache');
       }
-    } catch (err) {
-      fastify.log.warn({ err }, 'Redis cache read failed, proceeding without cache');
     }
 
     const [requests, interviews, allInterviewsForTiming] = await Promise.all([

@@ -127,12 +127,27 @@ export async function candidateRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Candidate not found' });
       }
 
-      // Собираем weaknesses и decisionBreakers
+      // Собираем strengths, weaknesses и decisionBreakers
+      const allStrengths: string[] = [];
       const allWeaknesses: string[] = [];
       const allDecisionBreakers: string[] = [];
 
       for (const i of interviews) {
         const analysis = i.analysis as any;
+        for (const s of analysis?.strengths ?? []) {
+          if (s && (s as string).toLowerCase() !== 'not mentioned') {
+            allStrengths.push(s as string);
+          }
+        }
+        // Софт скиллы из manager_call тоже считаем как strengths
+        if (analysis?.softSkills) {
+          const soft = analysis.softSkills as Record<string, string>;
+          for (const [key, value] of Object.entries(soft)) {
+            if (value && value.toLowerCase() !== 'not mentioned') {
+              allStrengths.push(`${key.replace(/([A-Z])/g, ' $1').trim()}: ${value}`);
+            }
+          }
+        }
         for (const w of analysis?.weaknesses ?? []) {
           if (w && (w as string).toLowerCase() !== 'not mentioned') {
             allWeaknesses.push(w as string);
@@ -143,7 +158,10 @@ export async function candidateRoutes(fastify: FastifyInstance) {
         }
       }
 
-      const [topWeaknesses, topDecisionBreakers] = await Promise.all([
+      const [topStrengths, topWeaknesses, topDecisionBreakers] = await Promise.all([
+        allStrengths.length > 0
+          ? clusterTextItems(allStrengths, 'strengths')
+          : Promise.resolve([]),
         allWeaknesses.length > 0
           ? clusterTextItems(allWeaknesses, 'weaknesses')
           : Promise.resolve([]),
@@ -165,6 +183,7 @@ export async function candidateRoutes(fastify: FastifyInstance) {
           ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
           : null,
         roles: [...new Set(interviews.map(i => i.role))],
+        topStrengths,
         topWeaknesses,
         topDecisionBreakers,
         interviews: interviews.map(i => ({

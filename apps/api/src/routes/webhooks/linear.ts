@@ -122,11 +122,21 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
       }
 
       if (type === 'Issue' && action === 'create') {
+        const createStatusMap: Record<string, string> = {
+          [STATUS_BROKERS_CALL]: 'manager_call',
+          [STATUS_TECH_CALL]: 'technical',
+          [STATUS_HIRED]: 'hired',
+          [STATUS_LOST]: 'lost',
+        };
+        const initialStatus = data.state?.name
+          ? (createStatusMap[data.state.name] ?? 'new')
+          : 'new';
+
         await upsertIncomingRequest({
           linearIssueId: data.id,
           clientName: data.team?.name,
           role: data.title,
-          status: 'new',
+          status: initialStatus,
         }).catch(err => fastify.log.warn({ err }, 'Failed to create IncomingRequest'));
       }
 
@@ -142,7 +152,7 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
           [STATUS_BROKERS_CALL]: 'manager_call',
           [STATUS_TECH_CALL]: 'technical',
           [STATUS_HIRED]: 'hired',
-          [STATUS_LOST]: 'rejected',
+          [STATUS_LOST]: 'lost',
         };
         if (statusMap[newStatus]) {
           await updateIncomingRequestStatus(issueId, statusMap[newStatus]);
