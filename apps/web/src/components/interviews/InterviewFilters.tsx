@@ -106,7 +106,7 @@ export function InterviewFilters({ value, onChange, managers = [], roles = [] }:
         filterKey="level"
         value={value.level}
         placeholder="All Levels"
-        options={['Junior','Middle','Senior'].map(l => ({ value: l, label: l }))}
+        options={['Junior','Middle','Senior','Architect'].map(l => ({ value: l, label: l }))}
         onChange={v => set('level', v)}
         triggerClass="min-w-40"
       />

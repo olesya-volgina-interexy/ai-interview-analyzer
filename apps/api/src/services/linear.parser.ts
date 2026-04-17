@@ -17,6 +17,7 @@ export interface CandidateThread {
   cvUrl: string | null;
   managerCallTranscriptUrl: string | null;
   managerFeedback: string | null;
+  managerName: string | null;
   technicalCallTranscriptUrl: string | null;
   finalDecision: 'hired' | 'lost' | null;
 }
@@ -94,8 +95,11 @@ function parseCandidateThread(
     managerCallTranscriptUrl: managerTranscriptReply
       ? (extractAttachmentUrl(managerTranscriptReply.body) ?? extractUrl(managerTranscriptReply.body))
       : null,
+    managerName: feedbackReply
+      ? extractManagerName(feedbackReply.body)
+      : null,
     managerFeedback: feedbackReply
-      ? extractFeedbackText(feedbackReply.body)
+      ? extractFeedbackText(feedbackReply.body).replace(/Manager:\s*[^\n]+\n?/i, '').trim()
       : null,
     technicalCallTranscriptUrl: techTranscriptReply
       ? (extractAttachmentUrl(techTranscriptReply.body) ?? extractUrl(techTranscriptReply.body))
@@ -141,6 +145,15 @@ function extractCVUrl(body: string): string | null {
   if (plainMatch) return plainMatch[0];
 
   return null;
+}
+
+// ── Извлечь имя менеджера из "Manager: Name" ─────────────────────────────
+
+function extractManagerName(body: string): string | null {
+  const match = body.match(/Manager:\s*([^\n]+)/i);
+  if (!match) return null;
+  const name = match[1].trim();
+  return name.length > 0 ? name : null;
 }
 
 // ── Фильтры для поиска кандидатов готовых к анализу ──────────────────────

@@ -1,4 +1,4 @@
-import { Ban, AlertTriangle, Briefcase } from 'lucide-react';
+import { Ban, AlertTriangle, Briefcase, Building2 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
@@ -6,6 +6,7 @@ interface QualityData {
   topDecisionBreakers: Array<{ text: string; count: number }>;
   topWeaknesses: Array<{ text: string; count: number }>;
   hireRateByRole: Array<{ role: string; hireRate: number; total: number }>;
+  topExternalReasons: Array<{ text: string; count: number }>;
 }
 
 function TagList({ items, bg, textColor, countBg, countText }: {
@@ -67,6 +68,21 @@ export function QualityStatsCard({ quality }: { quality: QualityData }) {
           textColor="#633806"
           countBg="#EF9F27"
           countText="#854F0B"
+        />
+      ),
+    },
+    {
+      key: 'external',
+      label: 'External reasons',
+      icon: Building2,
+      enabled: (quality.topExternalReasons ?? []).length > 0,
+      content: (
+        <TagList
+          items={quality.topExternalReasons ?? []}
+          bg="#FEF3C7"
+          textColor="#92400E"
+          countBg="#F59E0B"
+          countText="#78350F"
         />
       ),
     },

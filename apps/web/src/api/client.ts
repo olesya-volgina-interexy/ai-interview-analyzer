@@ -140,26 +140,33 @@ export interface StatsOverview {
     byRole: Record<string, number>;
   };
   pipeline: {
+    reachedCvSent: number;
+    totalCvSent: number;
     reachedManagerCall: number;
     reachedTechnical: number;
     reachedFinalResult: number;
     hired: number;
     rejected: number;
+    onHold: number;
     conversion: {
       managerCallToTechnical: number;
       technicalToHired: number;
     };
   };
   timing: {
+    avgTriageToManagerCallDays: number | null;
     avgManagerToTechnicalDays: number | null;
     avgTechnicalToFinalDays: number | null;
     avgTotalDays: number | null;
+    avgDaysToHired: number | null;
+    avgTimePerStage: Record<string, number | null>;
     trend: Array<{ month: string; count: number }>;
   };
   quality: {
     topDecisionBreakers: Array<{ text: string; count: number }>;
     topWeaknesses: Array<{ text: string; count: number }>;
     hireRateByRole: Array<{ role: string; hireRate: number; total: number }>;
+    topExternalReasons: Array<{ text: string; count: number }>;
   };
   candidates: {
     avgScoreByLevel: Array<{ level: string; avgScore: number }>;
@@ -184,6 +191,7 @@ export interface CandidateDetail {
   failed: number;
   avgScore: number | null;
   roles: string[];
+  totalCvSent: number;
   topStrengths: Array<{ text: string; count: number }>;
   topWeaknesses: Array<{ text: string; count: number }>;
   topDecisionBreakers: Array<{ text: string; count: number }>;

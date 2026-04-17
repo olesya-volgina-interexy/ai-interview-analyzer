@@ -10,13 +10,31 @@ import {
 import { extractCVText, detectLevelFromCV, extractNameFromCV, extractNameFromTranscript  } from '../../services/cv.service';
 import { analyzeQueue } from '../../workers/analyze.worker';
 import { getExistingAnalysesForIssue, upsertIncomingRequest, updateIncomingRequestStatus } from '../../db/db.service';
+import { prisma } from '../../db/prisma';
+import { redis } from '../../db/redis';
 import { fetchTranscript } from '../../services/bluedot.service';
+import { parseIssueTitle } from '../../services/linear.service';
 
 
+const STATUS_TRIAGE = 'Triage';
+const STATUS_IN_PROGRESS = 'In Progress';
+const STATUS_CLIENT_REVIEW = 'Client Review';
 const STATUS_BROKERS_CALL = "Broker's Call";
 const STATUS_TECH_CALL = 'Tech Call';
 const STATUS_HIRED = 'Hired';
 const STATUS_LOST = 'Lost';
+const STATUS_ON_HOLD = 'On Hold';
+
+const LINEAR_STATUS_MAP: Record<string, string> = {
+  [STATUS_TRIAGE]: 'triage',
+  [STATUS_IN_PROGRESS]: 'in_progress',
+  [STATUS_CLIENT_REVIEW]: 'client_review',
+  [STATUS_BROKERS_CALL]: 'manager_call',
+  [STATUS_TECH_CALL]: 'technical',
+  [STATUS_HIRED]: 'hired',
+  [STATUS_LOST]: 'lost',
+  [STATUS_ON_HOLD]: 'on_hold',
+};
 
 export async function linearWebhookRoutes(fastify: FastifyInstance) {
 
@@ -54,13 +72,41 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
 
         if (!issueId) return reply.status(200).send({ ok: true });
 
-        // Создаём/обновляем IncomingRequest при любом новом комментарии
+        // Создаём запись, если её ещё нет — но не перетираем status,
+        // чтобы не писать мусорные переходы в историю при каждом комментарии
         await upsertIncomingRequest({
           linearIssueId: issueId,
-          status: 'in_progress',
         }).catch(err => fastify.log.warn({ err }, 'Failed to upsert IncomingRequest'));
 
         fastify.log.info(`Linear: new comment in issue ${issueId}`);
+
+        // CV detection — трекаем отправку CV
+        const hasCVLink = commentBody.includes('my.visualcv.com') ||
+          commentBody.toLowerCase().includes('visualcv');
+
+        if (hasCVLink && issueId) {
+          await prisma.incomingRequest.updateMany({
+            where: {
+              linearIssueId: issueId,
+              status: { in: ['new', 'in_progress'] },
+            },
+            data: {
+              status: 'cv_sent',
+              cvSentCount: { increment: 1 },
+            },
+          }).catch(err => fastify.log.warn({ err }, 'Failed to update cv_sent status'));
+
+          // Increment count even if status already beyond cv_sent
+          await prisma.incomingRequest.updateMany({
+            where: {
+              linearIssueId: issueId,
+              status: { notIn: ['new', 'in_progress'] },
+            },
+            data: {
+              cvSentCount: { increment: 1 },
+            },
+          }).catch(err => fastify.log.warn({ err }, 'Failed to increment cv count'));
+        }
 
         // Получаем существующие анализы ОДИН РАЗ для всего тикета
         const existingAnalyses = await getExistingAnalysesForIssue(issueId);
@@ -118,18 +164,30 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
           }
         }
 
+        // External feedback — причина закрытия/потери не связанная с кандидатом
+        if (commentBody.includes('#feedback') && !commentBody.includes('#feedback_manager_call')) {
+          const feedbackText = commentBody
+            .replace(/#feedback/g, '')
+            .replace(/\[#feedback\]\(<#feedback>\)/g, '')
+            .trim();
+          if (feedbackText && issueId) {
+            await prisma.incomingRequest.updateMany({
+              where: { linearIssueId: issueId },
+              data: { externalFeedback: feedbackText },
+            }).catch(err => fastify.log.warn({ err }, 'Failed to save external feedback'));
+
+            // Инвалидируем кэш статистики
+            const keys = await redis.keys('stats:overview:*').catch(() => [] as string[]);
+            if (keys.length > 0) await redis.del(...keys).catch(() => {});
+          }
+        }
+
         return reply.status(200).send({ ok: true });
       }
 
       if (type === 'Issue' && action === 'create') {
-        const createStatusMap: Record<string, string> = {
-          [STATUS_BROKERS_CALL]: 'manager_call',
-          [STATUS_TECH_CALL]: 'technical',
-          [STATUS_HIRED]: 'hired',
-          [STATUS_LOST]: 'lost',
-        };
         const initialStatus = data.state?.name
-          ? (createStatusMap[data.state.name] ?? 'new')
+          ? (LINEAR_STATUS_MAP[data.state.name] ?? 'new')
           : 'new';
 
         await upsertIncomingRequest({
@@ -140,6 +198,37 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
         }).catch(err => fastify.log.warn({ err }, 'Failed to create IncomingRequest'));
       }
 
+      // ── Триггер на смену заголовка Issue (синхронизация clientName) ─────
+      if (type === 'Issue' && action === 'update' && updatedFrom?.title !== undefined) {
+        const issueId = data.id;
+        const newTitle = data.title ?? '';
+        const { clientName: newClientName } = parseIssueTitle(newTitle);
+
+        if (newClientName) {
+          const [requestUpdate, interviewUpdate] = await Promise.all([
+            prisma.incomingRequest.updateMany({
+              where: { linearIssueId: issueId },
+              data: { clientName: newClientName },
+            }),
+            prisma.interview.updateMany({
+              where: { linearIssueId: issueId },
+              data: { clientName: newClientName },
+            }),
+          ]);
+
+          fastify.log.info(
+            `Linear: issue ${issueId} title changed → clientName="${newClientName}" (${requestUpdate.count} requests, ${interviewUpdate.count} interviews updated)`
+          );
+
+          const keys = await redis.keys('stats:overview:*').catch(() => [] as string[]);
+          if (keys.length > 0) await redis.del(...keys).catch(() => {});
+        } else {
+          fastify.log.info(
+            `Linear: issue ${issueId} title changed to "${newTitle}" but no client extracted — skip`
+          );
+        }
+      }
+
       // ── Триггер на смену статуса Issue ──────────────────────────────────
       if (type === 'Issue' && action === 'update' && updatedFrom?.stateId && data.state) {
         const newStatus = data.state.name;
@@ -147,15 +236,9 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
 
         fastify.log.info(`Linear: issue ${issueId} → "${newStatus}"`);
 
-        // Синхронизируем статус IncomingRequest
-        const statusMap: Record<string, string> = {
-          [STATUS_BROKERS_CALL]: 'manager_call',
-          [STATUS_TECH_CALL]: 'technical',
-          [STATUS_HIRED]: 'hired',
-          [STATUS_LOST]: 'lost',
-        };
-        if (statusMap[newStatus]) {
-          await updateIncomingRequestStatus(issueId, statusMap[newStatus]);
+        // Синхронизируем статус IncomingRequest (и пишем строку истории)
+        if (LINEAR_STATUS_MAP[newStatus]) {
+          await updateIncomingRequestStatus(issueId, LINEAR_STATUS_MAP[newStatus]);
         }
 
         // Получаем существующие анализы
@@ -231,6 +314,7 @@ async function triggerManagerCall(
         level,
         clientName: parsed.clientName ?? undefined,
         candidateName: candidateName ?? undefined,
+        managerName: candidate.managerName ?? undefined,
         linearIssueId: issueId,
         cvUrl: candidate.cvUrl ?? undefined,
       },

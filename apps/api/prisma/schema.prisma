@@ -48,9 +48,23 @@ model IncomingRequest {
   role          String?
   level         String?
   brokerRequest String?  @db.Text
-  status        String   // 'new' | 'in_progress' | 'manager_call' | 'technical' | 'hired' | 'rejected' | 'on_hold' | 'dropped'
-  receivedAt    DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  status           String   // 'triage' | 'new' | 'in_progress' | 'client_review' | 'cv_sent' | 'manager_call' | 'technical' | 'hired' | 'rejected' | 'on_hold' | 'dropped'
+  cvSentCount      Int      @default(0)
+  externalFeedback String?  @db.Text
+  receivedAt       DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  statusHistory    IncomingRequestStatusHistory[]
 
   @@index([receivedAt, status])
+}
+
+model IncomingRequestStatusHistory {
+  id                String          @id @default(uuid())
+  incomingRequestId String
+  request           IncomingRequest @relation(fields: [incomingRequestId], references: [id], onDelete: Cascade)
+  status            String
+  enteredAt         DateTime        @default(now())
+
+  @@index([incomingRequestId, enteredAt])
 }

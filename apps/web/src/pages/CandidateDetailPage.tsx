@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CandidateModal } from '@/components/modals/CandidateModal';
-import { ArrowLeft, Users, CheckCircle, XCircle, Target } from 'lucide-react';
+import { ArrowLeft, Users, CheckCircle, XCircle, Target, FileText } from 'lucide-react';
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', {
@@ -85,8 +85,9 @@ export function CandidateDetailPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {[
+          { label: 'CV Submitted', value: data.totalCvSent, icon: <FileText size={18} />, accent: 'bg-cyan-50 text-cyan-600' },
           { label: 'Total Interviews', value: data.totalInterviews, icon: <Users size={18} />, accent: 'bg-[#5067F4]/10 text-[#5067F4]' },
           { label: 'Hired', value: data.successful, icon: <CheckCircle size={18} />, accent: 'bg-emerald-50 text-emerald-600' },
           { label: 'Rejected', value: data.failed, icon: <XCircle size={18} />, accent: 'bg-red-50 text-red-500' },

@@ -192,21 +192,43 @@ export async function upsertIncomingRequest(data: {
   brokerRequest?: string;
   status?: string;
 }) {
-  return prisma.incomingRequest.upsert({
-    where: { linearIssueId: data.linearIssueId },
-    create: {
-      linearIssueId: data.linearIssueId,
-      clientName: data.clientName,
-      role: data.role,
-      level: data.level,
-      brokerRequest: data.brokerRequest,
-      status: data.status ?? 'new',
-    },
-    update: {
-      ...(data.clientName && { clientName: data.clientName }),
-      ...(data.role && { role: data.role }),
-      ...(data.status && { status: data.status }),
-    },
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.incomingRequest.findUnique({
+      where: { linearIssueId: data.linearIssueId },
+      select: { id: true, status: true },
+    });
+
+    if (!existing) {
+      const initialStatus = data.status ?? 'new';
+      const created = await tx.incomingRequest.create({
+        data: {
+          linearIssueId: data.linearIssueId,
+          clientName: data.clientName,
+          role: data.role,
+          level: data.level,
+          brokerRequest: data.brokerRequest,
+          status: initialStatus,
+          statusHistory: {
+            create: { status: initialStatus },
+          },
+        },
+      });
+      return created;
+    }
+
+    const statusChanged = data.status !== undefined && data.status !== existing.status;
+
+    return tx.incomingRequest.update({
+      where: { id: existing.id },
+      data: {
+        ...(data.clientName && { clientName: data.clientName }),
+        ...(data.role && { role: data.role }),
+        ...(statusChanged && { status: data.status }),
+        ...(statusChanged && {
+          statusHistory: { create: { status: data.status! } },
+        }),
+      },
+    });
   });
 }
 
@@ -214,8 +236,19 @@ export async function updateIncomingRequestStatus(
   linearIssueId: string,
   status: string
 ) {
-  return prisma.incomingRequest.updateMany({
-    where: { linearIssueId },
-    data: { status },
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.incomingRequest.findUnique({
+      where: { linearIssueId },
+      select: { id: true, status: true },
+    });
+    if (!existing || existing.status === status) return existing;
+
+    return tx.incomingRequest.update({
+      where: { id: existing.id },
+      data: {
+        status,
+        statusHistory: { create: { status } },
+      },
+    });
   });
 }

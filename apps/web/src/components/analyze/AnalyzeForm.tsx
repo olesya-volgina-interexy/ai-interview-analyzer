@@ -109,7 +109,7 @@ export function AnalyzeForm({ onSubmit }: { onSubmit: (data: AnalyzeRequest) => 
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {['Junior', 'Middle', 'Senior'].map(l => (
+              {['Junior', 'Middle', 'Senior', 'Architect'].map(l => (
                 <SelectItem key={l} value={l}>{l}</SelectItem>
               ))}
             </SelectContent>

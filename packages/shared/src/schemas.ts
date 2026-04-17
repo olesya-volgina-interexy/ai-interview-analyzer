@@ -5,7 +5,7 @@ export const InterviewStageSchema = z.enum(['manager_call', 'technical']);
 export const InterviewMetaSchema = z.object({
   stage: InterviewStageSchema,                   // ← NEW: этап
   role: z.enum(['Backend', 'Frontend', 'Fullstack', 'DevOps', 'QA', 'Mobile']),
-  level: z.enum(['Junior', 'Middle', 'Senior']),
+  level: z.enum(['Junior', 'Middle', 'Senior', 'Architect']),
   // decision только для technical этапа
   decision: z.enum(['hired', 'rejected']).optional(),
   clientName: z.string().optional(),

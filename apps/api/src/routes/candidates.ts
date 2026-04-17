@@ -120,6 +120,7 @@ export async function candidateRoutes(fastify: FastifyInstance) {
           managerName: true,
           analysis: true,
           createdAt: true,
+          linearIssueId: true,
         },
       });
 
@@ -174,9 +175,24 @@ export async function candidateRoutes(fastify: FastifyInstance) {
         .map(i => (i.analysis as any)?.score)
         .filter((s): s is number => typeof s === 'number');
 
+      // CV sent stats
+      const issueIds = interviews
+        .map(i => i.linearIssueId)
+        .filter((id): id is string => !!id);
+
+      const cvStats = issueIds.length > 0
+        ? await prisma.incomingRequest.aggregate({
+            where: { linearIssueId: { in: issueIds } },
+            _sum: { cvSentCount: true },
+          })
+        : { _sum: { cvSentCount: 0 } };
+
+      const totalCvSent = cvStats._sum.cvSentCount ?? 0;
+
       return {
         candidateName: name,
         totalInterviews: interviews.length,
+        totalCvSent,
         successful: interviews.filter(i => i.decision === 'hired').length,
         failed: interviews.filter(i => i.decision === 'rejected').length,
         avgScore: scores.length > 0
