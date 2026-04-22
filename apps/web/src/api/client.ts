@@ -2,7 +2,9 @@ import axios, { AxiosError } from 'axios';
 import type { AnalyzeRequest, CandidateAnalysis } from '@shared/schemas';
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_URL
+    ? `${import.meta.env.VITE_API_URL}/api`
+    : '/api',
   headers: { 'Content-Type': 'application/json' },
 });
 

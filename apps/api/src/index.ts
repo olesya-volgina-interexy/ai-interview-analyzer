@@ -11,7 +11,11 @@ import { linearWebhookRoutes } from './routes/webhooks/linear';
 
 const app = Fastify({ logger: true });
 
-app.register(cors, { origin: 'http://localhost:5173' });
+app.register(cors, {
+  origin: process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',')
+    : ['http://localhost:5173'],
+});
 app.register(linearWebhookRoutes);
 
 app.register(analyzeRoutes);
