@@ -133,7 +133,7 @@ function isCandidateThread(
 
 // ── Извлечь CV URL (всегда my.visualcv.com) ───────────────────────────────
 
-function extractCVUrl(body: string): string | null {
+export function extractCVUrl(body: string): string | null {
   // Формат Linear markdown: [url](<url>)
   const markdownMatch = body.match(
     /\(<(https?:\/\/my\.visualcv\.com\/[^>]+)>\)/

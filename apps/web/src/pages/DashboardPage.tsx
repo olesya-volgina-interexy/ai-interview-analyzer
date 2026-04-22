@@ -12,8 +12,58 @@ import { LevelScoresCard, RoleScoresCard } from '@/components/dashboard/Candidat
 import { InterviewsTable } from '@/components/interviews/InterviewsTable';
 import { CandidateModal } from '@/components/modals/CandidateModal';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useLayout } from '@/context/LayoutContext';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+
+function ChartCardSkeleton({ height = 200 }: { height?: number }) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <Skeleton className="h-4 w-40" />
+      </CardHeader>
+      <CardContent>
+        <Skeleton className="w-full rounded-md" style={{ height }} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function TimelineCardSkeleton() {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <Skeleton className="h-4 w-32" />
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Skeleton className="h-16 w-full rounded-lg" />
+        <Skeleton className="h-3 w-full rounded-full" />
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+          {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-4 w-full" />)}
+        </div>
+        <Skeleton className="w-full rounded-md" style={{ height: 120 }} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function TagCardSkeleton({ tags = 6 }: { tags?: number }) {
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <Skeleton className="h-4 w-32" />
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap gap-1.5">
+          {[...Array(tags)].map((_, i) => (
+            <Skeleton key={i} className="h-6 rounded-md" style={{ width: `${60 + (i * 13) % 60}px` }} />
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 
 export function DashboardPage() {
@@ -40,7 +90,7 @@ export function DashboardPage() {
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const { data: overview } = useQuery({
+  const { data: overview, isLoading: overviewLoading } = useQuery({
     queryKey: ['stats', 'overview', dateRange],
     queryFn: () => statsApi.getOverview({
       from: dateRange.from?.toISOString(),
@@ -105,7 +155,14 @@ export function DashboardPage() {
 
             {/* Overview Tab — distribution charts */}
             <TabsContent value={0}>
-              <Charts stats={stats} />
+              {statsLoading ? (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  <ChartCardSkeleton />
+                  <ChartCardSkeleton />
+                </div>
+              ) : (
+                <Charts stats={stats} />
+              )}
             </TabsContent>
 
             {/* Pipeline Tab — requests, funnel, timeline */}
@@ -123,13 +180,15 @@ export function DashboardPage() {
                   </div>
                   <TimelineStatsCard timing={overview.timing} />
                 </div>
-              ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {[...Array(2)].map((_, i) => (
-                    <div key={i} className="h-64 bg-slate-50 rounded-xl animate-pulse" />
-                  ))}
+              ) : overviewLoading ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <ChartCardSkeleton height={240} />
+                    <ChartCardSkeleton height={240} />
+                  </div>
+                  <TimelineCardSkeleton />
                 </div>
-              )}
+              ) : null}
             </TabsContent>
 
             {/* Quality & Insights Tab */}
@@ -140,13 +199,13 @@ export function DashboardPage() {
                   <RoleScoresCard roles={overview.candidates.avgScoreByRole} />
                   <LevelScoresCard levels={overview.candidates.avgScoreByLevel} />
                 </div>
-              ) : (
+              ) : overviewLoading ? (
                 <div className="grid grid-cols-1 lg:grid-cols-[7fr_7fr_2fr] gap-4">
-                  <div className="h-64 bg-slate-50 rounded-xl animate-pulse" />
-                  <div className="h-64 bg-slate-50 rounded-xl animate-pulse" />
-                  <div className="h-64 bg-slate-50 rounded-xl animate-pulse" />
+                  <TagCardSkeleton tags={8} />
+                  <ChartCardSkeleton height={220} />
+                  <ChartCardSkeleton height={220} />
                 </div>
-              )}
+              ) : null}
             </TabsContent>
           </Tabs>
 

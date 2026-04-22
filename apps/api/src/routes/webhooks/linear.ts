@@ -5,6 +5,7 @@ import {
   findCandidatesForManagerCall,
   findCandidatesForTechCall,
   findCandidatesForFinalResult,
+  extractCVUrl,
   type CandidateThread,
 } from '../../services/linear.parser';
 import { extractCVText, detectLevelFromCV, extractNameFromCV, extractNameFromTranscript  } from '../../services/cv.service';
@@ -80,11 +81,12 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
 
         fastify.log.info(`Linear: new comment in issue ${issueId}`);
 
-        // CV detection — трекаем отправку CV
+        // CV detection — трекаем отправку CV (только root-комментарии)
         const hasCVLink = commentBody.includes('my.visualcv.com') ||
           commentBody.toLowerCase().includes('visualcv');
+        const isRootComment = !data.parent?.id;
 
-        if (hasCVLink && issueId) {
+        if (hasCVLink && issueId && isRootComment) {
           await prisma.incomingRequest.updateMany({
             where: {
               linearIssueId: issueId,
@@ -106,6 +108,47 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
               cvSentCount: { increment: 1 },
             },
           }).catch(err => fastify.log.warn({ err }, 'Failed to increment cv count'));
+          if (isRootComment) {
+            const cvUrl = extractCVUrl(commentBody);
+            if (cvUrl) {
+              setImmediate(async () => {
+                try {
+                  const cvText = await extractCVText(cvUrl);
+                  const [candidateName, level] = await Promise.all([
+                    extractNameFromCV(cvText),
+                    detectLevelFromCV(cvText),
+                  ]);
+
+                  const req = await prisma.incomingRequest.findUnique({
+                    where: { linearIssueId: issueId },
+                    select: { role: true, clientName: true },
+                  });
+
+                  await prisma.pipelineCandidate.upsert({
+                    where: { rootCommentId: data.id },
+                    create: {
+                      linearIssueId: issueId,
+                      rootCommentId: data.id,
+                      candidateName: candidateName ?? undefined,
+                      level: level ?? undefined,
+                      cvUrl,
+                      cvText,
+                      role: req?.role ?? undefined,
+                      clientName: req?.clientName ?? undefined,
+                    },
+                    update: {
+                      cvUrl,
+                      cvText,
+                      candidateName: candidateName ?? undefined,
+                      level: level ?? undefined,
+                    },
+                  });
+                } catch (err) {
+                  fastify.log.warn({ err }, 'Failed to create PipelineCandidate');
+                }
+              });
+            }
+          }
         }
 
         // Получаем существующие анализы ОДИН РАЗ для всего тикета
@@ -214,6 +257,10 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
               where: { linearIssueId: issueId },
               data: { clientName: newClientName },
             }),
+            prisma.pipelineCandidate.updateMany({
+              where: { linearIssueId: issueId },
+              data: { clientName: newClientName },
+            }).catch(err => fastify.log.warn({ err }, 'Failed to update PipelineCandidate clientName')),
           ]);
 
           fastify.log.info(

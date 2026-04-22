@@ -218,6 +218,33 @@ export const candidatesApi = {
     api.get<CandidateDetail>(`/candidates/${encodeURIComponent(name)}`),
 };
 
+export interface PipelineCandidateItem {
+  id: string;
+  candidateName: string | null;
+  cvUrl: string;
+  level: string | null;
+  role: string | null;
+  clientName: string | null;
+  cvSubmittedAt: string;
+  linearIssueId: string;
+  interviewCount: number;
+  lastStage: string | null;
+  lastDecision: string | null;
+}
+
+export const pipelineCandidatesApi = {
+  getList: (params?: {
+    search?: string;
+    hasInterviews?: 'yes' | 'no';
+    clientName?: string;
+    role?: string;
+    from?: string;
+    to?: string;
+    page?: number;
+    limit?: number;
+  }) => api.get<PipelineCandidateItem[]>('/pipeline-candidates', { params }),
+};
+
 export const statsApi = {
   getOverview: (params?: { from?: string; to?: string; refresh?: string }) =>
     api.get<StatsOverview>('/stats/overview', { params }),

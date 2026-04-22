@@ -42,9 +42,66 @@ export function CandidateDetailPage() {
 
   if (isLoading) return (
     <div className="p-4 md:p-6 space-y-4">
-      <Skeleton className="h-8 w-48" />
-      <Skeleton className="h-32 w-full" />
-      <Skeleton className="h-64 w-full" />
+      {/* Header skeleton */}
+      <div className="flex items-center gap-3">
+        <Skeleton className="h-11 w-11 rounded-lg" />
+        <div className="space-y-2">
+          <Skeleton className="h-5 w-48" />
+          <Skeleton className="h-3 w-36" />
+        </div>
+      </div>
+
+      {/* Stats cards skeleton */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {[...Array(5)].map((_, i) => (
+          <Card key={i}>
+            <CardContent>
+              <div className="flex items-start gap-3">
+                <Skeleton className="h-9 w-9 rounded-lg" />
+                <div className="flex-1 space-y-2">
+                  <Skeleton className="h-3 w-20" />
+                  <Skeleton className="h-7 w-12" />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Insights skeleton */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[...Array(3)].map((_, i) => (
+          <Card key={i}>
+            <CardHeader className="pb-2">
+              <Skeleton className="h-4 w-32" />
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-1.5">
+                {[...Array(5)].map((_, j) => (
+                  <Skeleton key={j} className="h-6 rounded-md" style={{ width: `${55 + (j * 17) % 55}px` }} />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* History table skeleton */}
+      <Card>
+        <CardHeader className="pb-2">
+          <Skeleton className="h-4 w-32" />
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="px-3 py-2 border-b border-slate-100 bg-[#5067F4]/5 grid grid-cols-7 gap-3">
+            {[...Array(7)].map((_, i) => <Skeleton key={i} className="h-3 w-16" />)}
+          </div>
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="px-3 py-3 border-b border-slate-100 grid grid-cols-7 gap-3 items-center">
+              {[...Array(7)].map((_, j) => <Skeleton key={j} className="h-4 w-full" />)}
+            </div>
+          ))}
+        </CardContent>
+      </Card>
     </div>
   );
 

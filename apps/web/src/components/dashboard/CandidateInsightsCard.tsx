@@ -11,7 +11,7 @@ interface RoleScore {
   avgScore: number;
 }
 
-const LEVEL_ORDER = ['Architect', 'Middle', 'Senior', 'Junior'];
+const LEVEL_ORDER = ['Junior', 'Middle', 'Senior', 'Architect'];
 
 const SCORE_TEXT = (score: number) =>
   score >= 75 ? 'text-green-600' : score >= 50 ? 'text-yellow-600' : 'text-red-500';

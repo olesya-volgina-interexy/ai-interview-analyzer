@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../db/prisma';
 import { clusterTextItems } from '../services/llm.service';
+import type { Prisma } from '@prisma/client';
 
 export async function candidateRoutes(fastify: FastifyInstance) {
 
@@ -218,4 +219,106 @@ export async function candidateRoutes(fastify: FastifyInstance) {
       };
     }
   );
+
+  fastify.get('/pipeline-candidates', async (request) => {
+    const { search, hasInterviews, clientName, role, from, to, page, limit } = request.query as {
+      search?: string;
+      hasInterviews?: 'yes' | 'no';
+      clientName?: string;
+      role?: string;
+      from?: string;
+      to?: string;
+      page?: string;
+      limit?: string;
+    };
+
+    const take = Number(limit ?? 20);
+    const skip = (Number(page ?? 1) - 1) * take;
+
+    const where: Prisma.PipelineCandidateWhereInput = {};
+
+    if (search) {
+      where.candidateName = { contains: search, mode: 'insensitive' };
+    }
+    if (clientName) {
+      where.clientName = { equals: clientName, mode: 'insensitive' };
+    }
+    if (role) {
+      where.role = { equals: role, mode: 'insensitive' };
+    }
+    if (from || to) {
+      where.cvSubmittedAt = {};
+      if (from) where.cvSubmittedAt.gte = new Date(from);
+      if (to) where.cvSubmittedAt.lte = new Date(to);
+    }
+
+    const candidates = await prisma.pipelineCandidate.findMany({
+      where,
+      orderBy: { cvSubmittedAt: 'desc' },
+      skip,
+      take,
+      select: {
+        id: true,
+        candidateName: true,
+        cvUrl: true,
+        level: true,
+        role: true,
+        clientName: true,
+        cvSubmittedAt: true,
+        linearIssueId: true,
+        rootCommentId: true,
+      },
+    });
+
+    if (candidates.length === 0) return [];
+
+    const issueIds = candidates.map(c => c.linearIssueId);
+    const commentIds = candidates.map(c => c.rootCommentId);
+
+    const interviews = await prisma.interview.findMany({
+      where: {
+        linearIssueId: { in: issueIds },
+        parentCommentId: { in: commentIds },
+      },
+      select: {
+        linearIssueId: true,
+        parentCommentId: true,
+        stage: true,
+        decision: true,
+        createdAt: true,
+      },
+    });
+
+    const interviewMap = new Map<string, typeof interviews>();
+    for (const iv of interviews) {
+      const key = `${iv.linearIssueId}:${iv.parentCommentId}`;
+      if (!interviewMap.has(key)) interviewMap.set(key, []);
+      interviewMap.get(key)!.push(iv);
+    }
+
+    const result = candidates.map(c => {
+      const key = `${c.linearIssueId}:${c.rootCommentId}`;
+      const ivs = interviewMap.get(key) ?? [];
+      const sorted = [...ivs].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      const last = sorted[0];
+
+      return {
+        id: c.id,
+        candidateName: c.candidateName,
+        cvUrl: c.cvUrl,
+        level: c.level,
+        role: c.role,
+        clientName: c.clientName,
+        cvSubmittedAt: c.cvSubmittedAt.toISOString(),
+        linearIssueId: c.linearIssueId,
+        interviewCount: ivs.length,
+        lastStage: last?.stage ?? null,
+        lastDecision: last?.decision ?? null,
+      };
+    });
+
+    if (hasInterviews === 'yes') return result.filter(r => r.interviewCount > 0);
+    if (hasInterviews === 'no') return result.filter(r => r.interviewCount === 0);
+    return result;
+  });
 }

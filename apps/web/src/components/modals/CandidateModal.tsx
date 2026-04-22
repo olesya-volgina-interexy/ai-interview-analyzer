@@ -233,38 +233,50 @@ ${analysis?.decisionBreakers?.length > 0 ? `DECISION BREAKERS:\n${analysis.decis
                 </pre>
               )}
 
-              {activeTab === 'questions' && data.questions && data.questions.length > 0 && (
-                <div className="space-y-3">
-                  {data.questions.map((q, i) => {
-                    const handled = q.candidateHandled;
-                    const badge =
-                      handled === 'well'    ? { bg: '#EAF3DE', color: '#27500A' } :
-                      handled === 'partial' ? { bg: '#FAEEDA', color: '#633806' } :
-                      handled === 'poor'    ? { bg: '#FCEBEB', color: '#791F1F' } :
-                                              { bg: '#F1EFE8', color: '#5F5E5A' };
+              {activeTab === 'questions' && data.questions && data.questions.length > 0 && (() => {
+                const grouped = data.questions.reduce((acc, q) => {
+                  const key = q.topic ?? '';
+                  if (!acc[key]) acc[key] = [];
+                  acc[key].push(q);
+                  return acc;
+                }, {} as Record<string, typeof data.questions>);
 
-                    return (
-                      <div key={i} className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          {q.topic ? (
-                            <p className="text-xs font-medium uppercase tracking-wide" style={{ color: 'hsl(var(--muted-foreground))', letterSpacing: '0.06em' }}>
-                              {q.topic}
-                            </p>
-                          ) : <span />}
-                          {handled && (
-                            <span className="text-xs font-medium px-2 py-0.5 rounded-md" style={{ background: badge.bg, color: badge.color }}>
-                              {handled}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-sm px-3 py-2 rounded-md leading-relaxed bg-muted" style={{ color: 'hsl(var(--foreground))' }}>
-                          {q.question}
+                const badgeStyle = (handled: string | undefined) =>
+                  handled === 'well'    ? { bg: '#EAF3DE', color: '#27500A' } :
+                  handled === 'partial' ? { bg: '#FAEEDA', color: '#633806' } :
+                  handled === 'poor'    ? { bg: '#FCEBEB', color: '#791F1F' } :
+                                          { bg: '#F1EFE8', color: '#5F5E5A' };
+
+                return (
+                  <div className="space-y-5">
+                    {Object.entries(grouped).map(([topic, questions]) => (
+                      <div key={topic}>
+                        {topic && (
+                          <p className="text-xs font-medium uppercase tracking-wide mb-2" style={{ color: 'hsl(var(--muted-foreground))', letterSpacing: '0.06em' }}>
+                            {topic}
+                          </p>
+                        )}
+                        <div className="space-y-2">
+                          {questions.map((q, i) => {
+                            const handled = q.candidateHandled;
+                            const badge = badgeStyle(handled);
+                            return (
+                              <div key={i} className="flex items-start justify-between gap-3 text-sm px-3 py-2 rounded-md bg-muted" style={{ color: 'hsl(var(--foreground))' }}>
+                                <span className="leading-relaxed">{q.question}</span>
+                                {handled && (
+                                  <span className="text-xs font-medium px-2 py-0.5 rounded-md flex-shrink-0 self-start mt-0.5" style={{ background: badge.bg, color: badge.color }}>
+                                    {handled}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
+                    ))}
+                  </div>
+                );
+              })()}
 
             </div>
           </div>

@@ -19,9 +19,10 @@ const STAGE_FLOW: Array<{ key: string; label: string; color: string }> = [
   { key: 'technical', label: 'Tech Call', color: '#A78BFA' },
 ];
 
-function StageProgressBar({ perStage }: { perStage: Record<string, number | null> }) {
+function StageProgressBar({ perStage }: { perStage?: Record<string, number | null> }) {
+  const data = perStage ?? {};
   const segments = STAGE_FLOW
-    .map(s => ({ ...s, days: perStage[s.key] ?? 0 }))
+    .map(s => ({ ...s, days: data[s.key] ?? 0 }))
     .filter(s => s.days > 0);
 
   const total = segments.reduce((sum, s) => sum + s.days, 0);
@@ -47,7 +48,7 @@ function StageProgressBar({ perStage }: { perStage: Record<string, number | null
       </div>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3 lg:grid-cols-5">
         {STAGE_FLOW.map(s => {
-          const days = perStage[s.key];
+          const days = data[s.key];
           return (
             <div key={s.key} className="flex items-center gap-1.5">
               <span className="inline-block h-2 w-2 rounded-full" style={{ background: s.color }} />
@@ -76,9 +77,9 @@ export function TimelineStatsCard({ timing }: { timing: TimingData }) {
           </p>
           <div className="flex items-baseline gap-1">
             <span className="text-2xl font-medium leading-none" style={{ color: '#0C447C' }}>
-              {timing.avgDaysToHired !== null ? timing.avgDaysToHired : '—'}
+              {timing.avgDaysToHired ?? '—'}
             </span>
-            {timing.avgDaysToHired !== null && (
+            {timing.avgDaysToHired != null && (
               <span className="text-xs" style={{ color: '#185FA5' }}>days avg</span>
             )}
           </div>

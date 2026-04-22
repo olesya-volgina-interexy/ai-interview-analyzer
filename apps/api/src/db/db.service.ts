@@ -64,7 +64,7 @@ export async function getInterviews(filters?: {
       ...(filters?.role && { role: filters.role }),
       ...(filters?.level && { level: filters.level }),
       ...(filters?.stage && { stage: filters.stage }),
-      ...(filters?.clientName && { clientName: filters.clientName }),
+      ...(filters?.clientName && { clientName: { contains: filters.clientName, mode: 'insensitive' } }),
       ...(filters?.decision && { decision: filters.decision }),
       ...(filters?.managerName && { managerName: filters.managerName }),
     },

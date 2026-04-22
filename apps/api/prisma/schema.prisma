@@ -68,3 +68,20 @@ model IncomingRequestStatusHistory {
 
   @@index([incomingRequestId, enteredAt])
 }
+
+model PipelineCandidate {
+  id            String   @id @default(uuid())
+  linearIssueId String
+  rootCommentId String   @unique
+  candidateName String?
+  level         String?
+  cvUrl         String
+  cvText        String?  @db.Text
+  role          String?
+  clientName    String?
+  cvSubmittedAt DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([linearIssueId])
+  @@index([cvSubmittedAt])
+}
