@@ -14,6 +14,9 @@ export default defineConfig({
       '@shared': resolve(__dirname, '../../packages/shared/src'),
     },
   },
+  build: {
+    cssMinify: 'esbuild',
+  },
   server: {
     port: 5173,
     proxy: {
