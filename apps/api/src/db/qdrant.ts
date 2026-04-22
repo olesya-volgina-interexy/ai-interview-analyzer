@@ -11,16 +11,17 @@ export async function initQdrantCollection() {
   const exists = collections.some(c => c.name === COLLECTION);
 
   if (exists) {
-    await qdrant.deleteCollection(COLLECTION);
-    console.log(`Qdrant collection "${COLLECTION}" deleted`);
+    console.log(`Qdrant collection "${COLLECTION}" already exists, skipping creation`);
+    return;
   }
+
   await qdrant.createCollection(COLLECTION, {
-      vectors: {
-        size: 1024,
-        distance: 'Cosine',
-      },
-    });
-    console.log(`Qdrant collection "${COLLECTION}" created`);
+    vectors: {
+      size: 1024,
+      distance: 'Cosine',
+    },
+  });
+  console.log(`Qdrant collection "${COLLECTION}" created`);
 }
 
 export { COLLECTION };

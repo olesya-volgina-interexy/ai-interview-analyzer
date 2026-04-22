@@ -465,7 +465,7 @@ async function triggerFinalResult(
 // ── Утилиты ───────────────────────────────────────────────────────────────
 
 function verifySignature(rawBody: string, signature: string): boolean {
-  if (!process.env.LINEAR_WEBHOOK_SECRET) return true;
+  if (!process.env.LINEAR_WEBHOOK_SECRET) return false;
   const hmac = crypto.createHmac('sha256', process.env.LINEAR_WEBHOOK_SECRET);
   hmac.update(rawBody);
   return hmac.digest('hex') === signature;

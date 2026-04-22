@@ -1,9 +1,5 @@
 // apps/api/src/services/cv.service.ts
 
-import { config } from 'dotenv';
-import { resolve } from 'path';
-config({ path: resolve(__dirname, '../../../../.env') });
-
 import axios from 'axios';
 import pdfParse from 'pdf-parse';
 import { llmClient, LLM_MODEL } from './llm.client';

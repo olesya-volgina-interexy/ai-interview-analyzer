@@ -1,9 +1,5 @@
 // apps/api/src/services/linear.service.ts
 
-import { config } from 'dotenv';
-import { resolve } from 'path';
-config({ path: resolve(__dirname, '../../../../.env') });
-
 import { LinearClient } from '@linear/sdk';
 
 export const linear = new LinearClient({

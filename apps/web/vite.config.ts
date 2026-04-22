@@ -2,6 +2,10 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
+if (!process.env.VITE_API_URL) {
+  console.warn('[vite] WARNING: VITE_API_URL is not set. API calls will use /api fallback which only works in local dev.');
+}
+
 export default defineConfig({
   plugins: [react({})],
   resolve: {
