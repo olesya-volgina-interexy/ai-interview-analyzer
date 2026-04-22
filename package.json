@@ -1,6 +1,7 @@
 {
   "name": "ai-interview-analyzer",
   "private": true,
+  "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "pnpm --parallel -r dev",
     "build": "pnpm -r build",
