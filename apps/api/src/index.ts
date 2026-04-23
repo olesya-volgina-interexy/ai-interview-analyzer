@@ -8,6 +8,7 @@ import { statsRoutes } from './routes/stats';
 import { candidateRoutes } from './routes/candidates';
 import './workers/analyze.worker';
 import { linearWebhookRoutes } from './routes/webhooks/linear';
+import { verifyLinearAuth } from './services/linear.service';
 
 const app = Fastify({ logger: true });
 
@@ -50,6 +51,10 @@ const start = async () => {
 
     await initQdrantCollection();
     app.log.info('Qdrant ready');
+
+    // Проверяем, что Linear API-ключ реально работает.
+    // Не кидаем — сервис поднимется, но в логе будет видно если ключ протух.
+    await verifyLinearAuth();
 
     await app.listen({ port: Number(process.env.PORT ?? 3001), host: '0.0.0.0' });
   } catch (err) {

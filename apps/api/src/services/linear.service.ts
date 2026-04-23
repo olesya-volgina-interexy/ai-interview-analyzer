@@ -2,9 +2,47 @@
 
 import { LinearClient } from '@linear/sdk';
 
+// Нормализуем ключ: часто в env попадают пробелы/кавычки/перенос строки,
+// а иногда — префикс "Bearer ". Убираем всё, что может сломать авторизацию.
+function normalizeApiKey(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  let v = raw.trim();
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+    v = v.slice(1, -1).trim();
+  }
+  if (/^bearer\s+/i.test(v)) v = v.replace(/^bearer\s+/i, '').trim();
+  return v || undefined;
+}
+
+const LINEAR_API_KEY = normalizeApiKey(process.env.LINEAR_API_KEY);
+
 export const linear = new LinearClient({
-  apiKey: process.env.LINEAR_API_KEY,
+  apiKey: LINEAR_API_KEY,
 });
+
+// Диагностика на старте — дергаем простой запрос и логируем результат.
+// Не роняем процесс: лучше живой сервер с видимой ошибкой авторизации,
+// чем тихий crash-loop в Render.
+export async function verifyLinearAuth(): Promise<void> {
+  if (!LINEAR_API_KEY) {
+    console.error('[linear] LINEAR_API_KEY is not set');
+    return;
+  }
+  try {
+    const data = await linearGraphQL<{ viewer: { id: string; email: string; name: string } }>(
+      'query { viewer { id email name } }',
+      {}
+    );
+    console.log(`[linear] auth OK as ${data.viewer.email} (${data.viewer.name})`);
+  } catch (err: any) {
+    console.error('[linear] auth check FAILED — token is invalid/revoked/misformatted', {
+      status: err?.status,
+      errors: err?.errors,
+      keyLength: LINEAR_API_KEY.length,
+      keyPrefix: LINEAR_API_KEY.slice(0, 6),
+    });
+  }
+}
 
 // ── Типы ──────────────────────────────────────────────────────────────────
 
@@ -60,8 +98,7 @@ async function linearGraphQL<T>(
   query: string,
   variables: Record<string, unknown>
 ): Promise<T> {
-  const apiKey = process.env.LINEAR_API_KEY;
-  if (!apiKey) {
+  if (!LINEAR_API_KEY) {
     throw new Error('LINEAR_API_KEY is not set — cannot call Linear GraphQL');
   }
 
@@ -69,7 +106,7 @@ async function linearGraphQL<T>(
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: apiKey,
+      Authorization: LINEAR_API_KEY,
     },
     body: JSON.stringify({ query, variables }),
   });
