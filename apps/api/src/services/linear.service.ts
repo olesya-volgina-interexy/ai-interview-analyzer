@@ -63,17 +63,33 @@ export interface LinearIssueData {
   labels: string[];
 }
 
-// ── Получить данные тикета ─────────────────────────────────────────────────
+// ── Получить данные тикета (один GraphQL-запрос вместо SDK + lazy-loading) ─
 
 export async function getIssueData(issueId: string): Promise<LinearIssueData> {
-  const issue = await linear.issue(issueId);
+  const query = `
+    query GetIssueData($id: String!) {
+      issue(id: $id) {
+        id
+        title
+        description
+        state { name }
+        labels(first: 50) { nodes { name } }
+      }
+    }
+  `;
 
-  const [state, labels] = await Promise.all([
-    issue.state,
-    issue.labels(),
-  ]);
+  const data = await linearGraphQL<{
+    issue: {
+      id: string;
+      title: string | null;
+      description: string | null;
+      state: { name: string } | null;
+      labels: { nodes: Array<{ name: string }> };
+    };
+  }>(query, { id: issueId });
 
-  const labelNames = labels.nodes.map(l => l.name);
+  const issue = data.issue;
+  const labelNames = issue.labels.nodes.map(l => l.name);
   const { role, clientName: titleClient } = parseIssueTitle(issue.title ?? '');
   const clientName = titleClient ?? labelNames[0] ?? null;
 
@@ -81,7 +97,7 @@ export async function getIssueData(issueId: string): Promise<LinearIssueData> {
     id: issue.id,
     title: issue.title ?? '',
     description: issue.description ?? null,
-    stateName: state?.name ?? 'unknown',
+    stateName: issue.state?.name ?? 'unknown',
     clientName,
     role,
     labels: labelNames,
@@ -164,14 +180,31 @@ export async function getIssueComments(issueId: string): Promise<LinearComment[]
   );
 }
 
-// ── Постинг reply в ветку кандидата ───────────────────────────────────────
+// ── Постинг reply в ветку кандидата (через прямой GraphQL mutation) ───────
 
 export async function postReply(
   issueId: string,
   parentId: string,
   body: string
 ): Promise<void> {
-  await linear.createComment({ issueId, parentId, body });
+  const mutation = `
+    mutation CreateComment($input: CommentCreateInput!) {
+      commentCreate(input: $input) {
+        success
+        comment { id }
+      }
+    }
+  `;
+
+  const data = await linearGraphQL<{
+    commentCreate: { success: boolean; comment: { id: string } | null };
+  }>(mutation, {
+    input: { issueId, parentId, body },
+  });
+
+  if (!data.commentCreate?.success) {
+    throw new Error('Linear commentCreate returned success=false');
+  }
 }
 
 // ── Вспомогательные функции ────────────────────────────────────────────────
