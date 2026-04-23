@@ -24,6 +24,7 @@ function truncate(value: unknown, max = 2000): unknown {
 // Раскладываем ошибку на все поля, которые реально встречаются
 // в SDK: OpenAI (err.status / err.error / err.code / err.param),
 // axios (err.response?.data / err.response?.status / err.code),
+// Qdrant ApiError (err.data / err.status / err.url / err.headers),
 // Linear (err.type / err.errors), fetch (err.cause).
 export function describeError(err: unknown): Record<string, unknown> {
   if (!err || typeof err !== 'object') {
@@ -34,10 +35,12 @@ export function describeError(err: unknown): Record<string, unknown> {
     name: e.name,
     message: e.message,
     status: e.status ?? e.statusCode ?? e.response?.status,
-    statusText: e.response?.statusText,
+    statusText: e.statusText ?? e.response?.statusText,
     code: e.code,
     type: e.type,
     param: e.param,
+    url: e.url,
+    data: truncate(e.data),
     responseData: truncate(e.response?.data),
     responseBody: truncate(e.response?.body),
     errorField: truncate(e.error),
