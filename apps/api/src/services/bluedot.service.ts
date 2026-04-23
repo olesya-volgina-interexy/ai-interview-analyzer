@@ -7,6 +7,17 @@ import puppeteer from 'puppeteer';
 const BLUEDOT_PREVIEW_RE = /bluedothq\.com\/preview\//i;
 const LINEAR_UPLOAD_RE = /uploads\.linear\.app\//i;
 
+// Сериализуем запуски Chrome — 512 MB инстанс не тянет несколько процессов
+// параллельно, а воркер обрабатывает очередь с concurrency=3.
+let chromeLock: Promise<unknown> = Promise.resolve();
+function withChromeLock<T>(fn: () => Promise<T>): Promise<T> {
+  const prev = chromeLock;
+  let release!: () => void;
+  const next = new Promise<void>(r => { release = r; });
+  chromeLock = next;
+  return prev.then(() => fn()).finally(() => release());
+}
+
 // ── Главная функция ───────────────────────────────────────────────────────
 
 export async function fetchTranscript(urlOrPdf: string): Promise<string> {
@@ -30,18 +41,27 @@ export async function fetchTranscript(urlOrPdf: string): Promise<string> {
 // ── Bluedot preview — Puppeteer ───────────────────────────────────────────
 
 async function fetchBluedotPreview(url: string): Promise<string> {
+  return withChromeLock(() => fetchBluedotPreviewInner(url));
+}
+
+async function fetchBluedotPreviewInner(url: string): Promise<string> {
   const browser = await puppeteer.launch({
     headless: true,
     executablePath: process.env.CHROME_PATH,
-    // --disable-dev-shm-usage чинит "WS endpoint URL not appearing in stdout"
-    // при запуске Chrome в контейнерах с маленьким /dev/shm (Render Free/Starter).
-    // --disable-gpu убирает попытки инициализировать GPU, которого в headless
-    // на сервере нет.
+    // pipe=true — общаемся с Chrome через прямой IPC-пайп, а не WebSocket.
+    // Убирает "Timed out waiting for WS endpoint URL" на низкоресурсных
+    // инстансах (Render Starter 512MB).
+    pipe: true,
+    timeout: 60_000,
+    // --disable-dev-shm-usage — /dev/shm в контейнере маленький.
+    // --disable-gpu — GPU в headless на сервере нет.
+    // --single-process — один Chrome-процесс вместо дерева → меньше RAM.
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
       '--disable-gpu',
+      '--single-process',
     ],
   });
 
