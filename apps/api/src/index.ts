@@ -24,10 +24,10 @@ if (process.env.NODE_ENV === 'production' && !process.env.CORS_ORIGIN) {
 app.register(cors, { origin: corsOrigins });
 app.register(linearWebhookRoutes);
 
-app.register(analyzeRoutes);
-app.register(interviewRoutes);
-app.register(statsRoutes);
-app.register(candidateRoutes);
+app.register(analyzeRoutes, { prefix: '/api' });
+app.register(interviewRoutes, { prefix: '/api' });
+app.register(statsRoutes, { prefix: '/api' });
+app.register(candidateRoutes, { prefix: '/api' });
 
 app.get('/health', async () => ({ status: 'ok', version: '1.0.0' }));
 
