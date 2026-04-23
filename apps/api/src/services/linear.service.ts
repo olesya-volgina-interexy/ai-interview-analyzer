@@ -50,6 +50,51 @@ export async function getIssueData(issueId: string): Promise<LinearIssueData> {
   };
 }
 
+// ── Прямой GraphQL-запрос к Linear API ────────────────────────────────────
+// В Linear SDK v26 внутренний client.rawRequest теряет API-ключ,
+// поэтому отправляем запрос напрямую — контроль над заголовками 100%.
+
+const LINEAR_GRAPHQL_URL = 'https://api.linear.app/graphql';
+
+async function linearGraphQL<T>(
+  query: string,
+  variables: Record<string, unknown>
+): Promise<T> {
+  const apiKey = process.env.LINEAR_API_KEY;
+  if (!apiKey) {
+    throw new Error('LINEAR_API_KEY is not set — cannot call Linear GraphQL');
+  }
+
+  const res = await fetch(LINEAR_GRAPHQL_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: apiKey,
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+
+  const json = (await res.json()) as { data?: T; errors?: unknown };
+
+  if (!res.ok || json.errors) {
+    const err = new Error('Linear GraphQL request failed') as Error & {
+      status?: number;
+      data?: unknown;
+      errors?: unknown;
+    };
+    err.status = res.status;
+    err.errors = json.errors;
+    err.data = json;
+    throw err;
+  }
+
+  if (!json.data) {
+    throw new Error('Linear GraphQL response has no data');
+  }
+
+  return json.data;
+}
+
 // ── Получить все комментарии тикета с parent.id через GraphQL ──────────────
 
 export async function getIssueComments(issueId: string): Promise<LinearComment[]> {
@@ -70,8 +115,11 @@ export async function getIssueComments(issueId: string): Promise<LinearComment[]
     }
   `;
 
-  const result = await (linear as any).client.rawRequest(query, { issueId });
-  const comments = result.data.issue.comments.nodes as LinearComment[];
+  const data = await linearGraphQL<{
+    issue: { comments: { nodes: LinearComment[] } };
+  }>(query, { issueId });
+
+  const comments = data.issue.comments.nodes;
 
   // Сортируем от старых к новым
   return comments.sort(
