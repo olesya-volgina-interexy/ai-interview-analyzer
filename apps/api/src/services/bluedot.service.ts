@@ -48,11 +48,16 @@ async function fetchBluedotPreview(url: string): Promise<string> {
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
     try {
-      // Ждём пока появится реальный текст транскрипции (реплики рендерятся
-      // после первой сетевой подгрузки).
+      // Ждём пока BlueDot отрисует сами реплики: либо появится маркер
+      // "Speaker:" (стандартный формат BlueDot), либо накопится достаточно
+      // текста. Явный polling=500ms вместо дефолтного raf, который в
+      // headless режиме на idle SPA тикает редко.
       await page.waitForFunction(
-        () => document.body.innerText.length > 100,
-        { timeout: 30_000 }
+        () => {
+          const t = document.body.innerText;
+          return t.includes('Speaker:') || t.length > 3000;
+        },
+        { timeout: 90_000, polling: 500 }
       );
     } catch (waitErr) {
       // Таймаут ожидания контента — снимаем диагностику, чтобы в логе
