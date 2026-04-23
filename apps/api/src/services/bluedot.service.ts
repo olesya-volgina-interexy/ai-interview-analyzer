@@ -42,13 +42,16 @@ async function fetchBluedotPreview(url: string): Promise<string> {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     );
 
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30_000 });
+    // Bluedot — SPA с долгоживущими соединениями; networkidle2 никогда не
+    // наступает. Ждём только готовности DOM, а наличие контента проверяем
+    // отдельным waitForFunction ниже.
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
-    // Ждём пока появится хоть какой-то текст транскрипции
-    // Bluedot рендерит реплики в параграфах внутри блока с "Transcript"
+    // Ждём пока появится реальный текст транскрипции (реплики рендерятся
+    // после первой сетевой подгрузки).
     await page.waitForFunction(
       () => document.body.innerText.length > 100,
-      { timeout: 15_000 }
+      { timeout: 30_000 }
     );
 
     // Извлекаем текст: ищем блоки с именами спикеров + текстом реплик
