@@ -47,28 +47,31 @@ async function fetchBluedotPreview(url: string): Promise<string> {
     // отдельным waitForFunction ниже.
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
-    // Ждём пока появится реальный текст транскрипции (реплики рендерятся
-    // после первой сетевой подгрузки).
-    await page.waitForFunction(
-      () => document.body.innerText.length > 100,
-      { timeout: 30_000 }
-    );
+    try {
+      // Ждём пока появится реальный текст транскрипции (реплики рендерятся
+      // после первой сетевой подгрузки).
+      await page.waitForFunction(
+        () => document.body.innerText.length > 100,
+        { timeout: 30_000 }
+      );
+    } catch (waitErr) {
+      // Таймаут ожидания контента — снимаем диагностику, чтобы в логе
+      // было видно, что реально отдал BlueDot (login? 404? пустой shell?).
+      const diag = await page.evaluate(() => ({
+        url: location.href,
+        title: document.title,
+        htmlLength: document.documentElement.outerHTML.length,
+        bodyTextLength: document.body.innerText.length,
+        bodyPreview: document.body.innerText.slice(0, 500),
+        iframes: Array.from(document.querySelectorAll('iframe')).map(f => f.src).slice(0, 5),
+      })).catch(() => null);
+      console.error('[stage:bluedot] page content wait timed out', { sourceUrl: url, diag });
+      throw waitErr;
+    }
 
-    // Извлекаем текст: ищем блоки с именами спикеров + текстом реплик
-    const transcript = await page.evaluate(() => {
-      // Стратегия 1: ищем элементы с паттерном "Speaker: X" + следующий текст
-      const lines: string[] = [];
-
-      // Bluedot обычно рендерит так:
-      //   <div/span> "Speaker: A" 
-      //   <p/div> текст реплики
-      // Берём весь innerText страницы и режем по паттерну Speaker:
-      const raw = document.body.innerText;
-      return raw;
-    });
-
-    // Из полного innerText вырезаем только секцию транскрипции
-    const extracted = extractTranscriptSection(transcript);
+    // Извлекаем полный текст страницы, а потом вырезаем секцию транскрипции
+    const raw = await page.evaluate(() => document.body.innerText);
+    const extracted = extractTranscriptSection(raw);
 
     if (!extracted || extracted.length < 50) {
       throw new Error('Transcript section is empty or too short');
