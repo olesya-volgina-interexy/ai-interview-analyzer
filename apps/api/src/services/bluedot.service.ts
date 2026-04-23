@@ -33,7 +33,16 @@ async function fetchBluedotPreview(url: string): Promise<string> {
   const browser = await puppeteer.launch({
     headless: true,
     executablePath: process.env.CHROME_PATH,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    // --disable-dev-shm-usage чинит "WS endpoint URL not appearing in stdout"
+    // при запуске Chrome в контейнерах с маленьким /dev/shm (Render Free/Starter).
+    // --disable-gpu убирает попытки инициализировать GPU, которого в headless
+    // на сервере нет.
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+    ],
   });
 
   try {
@@ -47,15 +56,33 @@ async function fetchBluedotPreview(url: string): Promise<string> {
     // отдельным waitForFunction ниже.
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
+    // Ждём пока отрисуется UI с табами (в body должна появиться строка
+    // "Transcript" как заголовок вкладки).
+    await page.waitForFunction(
+      () => document.body.innerText.includes('Transcript'),
+      { timeout: 60_000, polling: 500 }
+    ).catch(() => { /* пойдём дальше — вдруг вкладка уже активна */ });
+
+    // У BlueDot бывает два состояния превью:
+    //   (a) Transcript открыт по умолчанию (повезло — уже есть "Speaker:")
+    //   (b) По умолчанию Overview/Action Items/Topics — нужно кликнуть "Transcript"
+    // Кликаем на вкладку если контент с репликами ещё не виден.
+    await page.evaluate(() => {
+      if (document.body.innerText.includes('Speaker:')) return;
+      const candidates = Array.from(
+        document.querySelectorAll('button, a, div, span, [role="tab"], li')
+      ) as HTMLElement[];
+      const tab = candidates.find(el => el.innerText?.trim() === 'Transcript');
+      if (tab) tab.click();
+    });
+
     try {
-      // Ждём пока BlueDot отрисует сами реплики: либо появится маркер
-      // "Speaker:" (стандартный формат BlueDot), либо накопится достаточно
-      // текста. Явный polling=500ms вместо дефолтного raf, который в
-      // headless режиме на idle SPA тикает редко.
+      // Теперь ждём реальные реплики (маркер "Speaker:") или достаточно
+      // длинный текст.
       await page.waitForFunction(
         () => {
           const t = document.body.innerText;
-          return t.includes('Speaker:') || t.length > 3000;
+          return t.includes('Speaker:') || t.length > 5000;
         },
         { timeout: 90_000, polling: 500 }
       );
