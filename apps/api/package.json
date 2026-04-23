@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "pnpm --filter @shared/schemas build && prisma generate && tsc && tsc-alias",
+    "build": "pnpm --filter @shared/schemas build && prisma generate && tsc && tsc-alias && pnpm exec puppeteer browsers install chrome",
     "start": "pnpm prisma migrate deploy && node dist/index.js",
     "migrate:incoming": "tsx src/scripts/migrate-incoming-requests.ts"
   },
