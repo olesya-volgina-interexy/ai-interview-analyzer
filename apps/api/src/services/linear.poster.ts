@@ -1,5 +1,6 @@
 import { postReply } from './linear.service';
 import type { ManagerCallAnalysis, TechnicalAnalysis } from '@shared/schemas';
+import { describeError } from '../utils/errorLogger';
 
 
 async function postReplyWithRetry(
@@ -16,8 +17,8 @@ async function postReplyWithRetry(
       return;
     } catch (err: any) {
       lastError = err;
-      
-      const isRetriable = 
+
+      const isRetriable =
         err.message?.includes('fetch failed') ||
         err.message?.includes('ETIMEDOUT') ||
         err.message?.includes('ECONNRESET') ||
@@ -26,12 +27,26 @@ async function postReplyWithRetry(
         err.status >= 500;
 
       if (!isRetriable || attempt === maxRetries) {
+        console.error('[stage:linear] postReply non-retriable / exhausted', {
+          ...describeError(err),
+          issueId,
+          parentCommentId,
+          attempt,
+          maxRetries,
+        });
         throw err;
       }
 
       const delay = Math.pow(2, attempt - 1) * 1000;
-      console.warn(`Linear API failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms...`);
-      
+      console.warn('[stage:linear] postReply failed, retrying', {
+        ...describeError(err),
+        issueId,
+        parentCommentId,
+        attempt,
+        maxRetries,
+        retryInMs: delay,
+      });
+
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }

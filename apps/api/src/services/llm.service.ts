@@ -12,6 +12,7 @@ import {
   buildFinalResultSystemPrompt,
   FINAL_RESULT_JSON_SCHEMA
 } from '../prompts/analyze.prompt';
+import { describeError } from '../utils/errorLogger';
 
 export async function analyzeInterview(
   transcript: string,
@@ -52,7 +53,13 @@ export async function analyzeInterview(
     const parsed = JSON.parse(rawContent);
     return CandidateAnalysisSchema.parse(parsed);
   } catch (err) {
-    console.error('LLM returned invalid JSON:', rawContent);
+    console.error('[stage:llm] analyzeInterview parse/schema failed', {
+      ...describeError(err),
+      stage: meta.stage,
+      role: meta.role,
+      level: meta.level,
+      rawContentPreview: rawContent.slice(0, 1500),
+    });
     throw new Error('Failed to parse LLM response');
   }
 }
@@ -83,7 +90,11 @@ export async function analyzeFinalResult(
   try {
     return FinalResultAnalysisSchema.parse(JSON.parse(raw));
   } catch (err) {
-    console.error('Failed to parse final result:', raw);
+    console.error('[stage:llm] analyzeFinalResult parse/schema failed', {
+      ...describeError(err),
+      decision,
+      rawContentPreview: raw.slice(0, 1500),
+    });
     throw new Error('Failed to parse final result analysis');
   }
 }
@@ -129,7 +140,7 @@ ${items.map((item, i) => `${i + 1}. ${item}`).join('\n')}`;
       .filter((i: any) => i.text && typeof i.count === 'number')
       .slice(0, 8);
   } catch (err) {
-    console.error('Failed to cluster items:', err);
+    console.error('[stage:llm] clusterTextItems failed', { ...describeError(err), type, itemsCount: items.length });
     // Fallback — возвращаем простой подсчёт без кластеризации
     const map: Record<string, number> = {};
     for (const item of items) {

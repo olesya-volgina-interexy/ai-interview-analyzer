@@ -1,6 +1,7 @@
 import { prisma } from '../db/prisma';
 import type { InterviewMeta, CandidateAnalysis } from '@shared/schemas';
 import { redis } from '../db/redis';
+import { describeError } from '../utils/errorLogger';
 
 // Создать запись интервью
 export async function createInterview(data: {
@@ -39,7 +40,7 @@ export async function createInterview(data: {
     const keys = await redis.keys('stats:overview:*');
     if (keys.length > 0) await redis.del(...keys);
   } catch (err) {
-    console.warn('Failed to invalidate stats cache:', err);
+    console.warn('[stage:db] stats cache invalidation failed', describeError(err));
   }
 
   return interview;

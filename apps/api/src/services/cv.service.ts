@@ -3,6 +3,7 @@
 import axios from 'axios';
 import pdfParse from 'pdf-parse';
 import { llmClient, LLM_MODEL } from './llm.client';
+import { describeError } from '../utils/errorLogger';
 
 // Константы для определения типа ссылки
 const LINEAR_UPLOAD_RE = /uploads\.linear\.app\//i;
@@ -107,9 +108,7 @@ function isTextFile(url: string): boolean {
 }
 
 function logError(url: string, err: any) {
-  const status = err.response?.status;
-  const message = err.message || err;
-  console.warn(`CV fetch failed: ${url} — Status: ${status || 'N/A'} — ${message}`);
+  console.warn('[stage:cv] fetch failed', { url, ...describeError(err) });
 }
 
 // ── Функции извлечения данных через LLM ───────────────────────────────────
@@ -135,7 +134,8 @@ ${cvText.slice(0, 2500)}`,
     const name = response.choices[0].message.content?.trim();
     if (!name || name === 'null') return null;
     return name;
-  } catch {
+  } catch (err) {
+    console.warn('[stage:cv] extractNameFromCV failed', describeError(err));
     return null;
   }
 }
@@ -163,7 +163,8 @@ ${cvText.slice(0, 3500)}`,
     const level = response.choices[0].message.content?.trim();
     if (level === 'Junior' || level === 'Middle' || level === 'Senior') return level;
     return 'Middle';
-  } catch {
+  } catch (err) {
+    console.warn('[stage:cv] detectLevelFromCV failed', describeError(err));
     return 'Middle';
   }
 }
@@ -190,7 +191,8 @@ ${transcript.slice(0, 2000)}`,
     const name = response.choices[0].message.content?.trim();
     if (!name || name === 'null') return null;
     return name;
-  } catch {
+  } catch (err) {
+    console.warn('[stage:cv] extractNameFromTranscript failed', describeError(err));
     return null;
   }
 }
