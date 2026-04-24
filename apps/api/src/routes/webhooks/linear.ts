@@ -152,60 +152,19 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
           }
         }
 
-        // Получаем существующие анализы ОДИН РАЗ для всего тикета
-        const existingAnalyses = await getExistingAnalysesForIssue(issueId);
-
-        // Manager call — появился фидбек или транскрипция
-        if (
+        // Re-evaluate all stages whenever a stage-marker comment lands — this
+        // catches the case where the trigger arrives before the matching
+        // status (manager_call/technical) or where a #hired/#lost marker is
+        // added after the issue is already in Hired/Lost.
+        const hasStageMarker =
           commentBody.includes('#feedback_manager_call') ||
-          commentBody.includes('#manager_call_transcript')
-        ) {
-          const parsed = await parseIssue(issueId);
-          if (parsed.status === STATUS_BROKERS_CALL) {
-            const candidates = findCandidatesForManagerCall(parsed.candidates);
-            
-            // Фильтруем кандидатов у которых ещё нет анализа
-            const candidatesToAnalyze = candidates.filter(c => {
-              const existingStages = existingAnalyses.get(c.rootCommentId);
-              const alreadyAnalyzed = existingStages?.has('manager_call') ?? false;
-              
-              if (alreadyAnalyzed) {
-                fastify.log.info(`Skipping manager_call for ${c.rootCommentId} — already analyzed`);
-              }
-              return !alreadyAnalyzed;
-            });
+          commentBody.includes('#manager_call_transcript') ||
+          commentBody.includes('#technical_call_transcript') ||
+          commentBody.includes('#hired') ||
+          commentBody.includes('#lost');
 
-            fastify.log.info(`Manager call candidates: ${candidates.length} total, ${candidatesToAnalyze.length} to analyze`);
-
-            await Promise.all(
-              candidatesToAnalyze.map(c => triggerManagerCall(issueId, parsed, c, fastify))
-            );
-          }
-        }
-
-        // Technical call — появилась транскрипция технички
-        if (commentBody.includes('#technical_call_transcript')) {
-          const parsed = await parseIssue(issueId);
-          if (parsed.status === STATUS_TECH_CALL) {
-            const candidates = findCandidatesForTechCall(parsed.candidates);
-            
-            // Фильтруем кандидатов у которых ещё нет анализа
-            const candidatesToAnalyze = candidates.filter(c => {
-              const existingStages = existingAnalyses.get(c.rootCommentId);
-              const alreadyAnalyzed = existingStages?.has('technical') ?? false;
-              
-              if (alreadyAnalyzed) {
-                fastify.log.info(`Skipping technical for ${c.rootCommentId} — already analyzed`);
-              }
-              return !alreadyAnalyzed;
-            });
-
-            fastify.log.info(`Tech call candidates: ${candidates.length} total, ${candidatesToAnalyze.length} to analyze`);
-
-            await Promise.all(
-              candidatesToAnalyze.map(c => triggerTechCall(issueId, parsed, c, fastify))
-            );
-          }
+        if (hasStageMarker) {
+          await evaluateAndTriggerStages(issueId, fastify);
         }
 
         // External feedback — причина закрытия/потери не связанная с кандидатом
@@ -289,31 +248,17 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
           await updateIncomingRequestStatus(issueId, LINEAR_STATUS_MAP[newStatus]);
         }
 
-        // Получаем существующие анализы
-        const existingAnalyses = await getExistingAnalysesForIssue(issueId);
-        const parsed = await parseIssue(issueId);
-
-        // Hired / Lost — финальный анализ
-        if (newStatus === STATUS_HIRED || newStatus === STATUS_LOST) {
-          const decision = newStatus === STATUS_HIRED ? 'hired' : 'lost';
-          const candidates = findCandidatesForFinalResult(parsed.candidates, decision);
-          
-          // Фильтруем кандидатов у которых ещё нет финального анализа
-          const candidatesToAnalyze = candidates.filter(c => {
-            const existingStages = existingAnalyses.get(c.rootCommentId);
-            const alreadyAnalyzed = existingStages?.has('final_result') ?? false;
-            
-            if (alreadyAnalyzed) {
-              fastify.log.info(`Skipping final_result for ${c.rootCommentId} — already analyzed`);
-            }
-            return !alreadyAnalyzed;
-          });
-
-          fastify.log.info(`Final result candidates (${decision}): ${candidates.length} total, ${candidatesToAnalyze.length} to analyze`);
-
-          await Promise.all(
-            candidatesToAnalyze.map(c => triggerFinalResult(issueId, parsed, c, decision, fastify))
-          );
+        // Re-evaluate all stages on any analysis-relevant status change —
+        // this catches comments that arrived before the status was set
+        // (e.g. manager_call transcript posted while issue still in
+        // "In Progress", or final markers added before Hired/Lost).
+        if (
+          newStatus === STATUS_BROKERS_CALL ||
+          newStatus === STATUS_TECH_CALL ||
+          newStatus === STATUS_HIRED ||
+          newStatus === STATUS_LOST
+        ) {
+          await evaluateAndTriggerStages(issueId, fastify);
         }
       }
 
@@ -323,6 +268,74 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
 
     return reply.status(200).send({ ok: true });
   });
+}
+
+// Идемпотентно проверяет все три стадии по текущему состоянию тикета и
+// ставит в очередь то, что готово и ещё не проанализировано.
+// Вызывается и из comment-handler, и из status-handler — при любом событии
+// мы пересматриваем полную картину, поэтому порядок прихода коммента и
+// смены статуса не влияет на то, запустится ли анализ.
+//
+// Дедуп-гарантии (уже на месте из предыдущего PR):
+//   - стабильный jobId через buildWebhookJobId(issueId, rootCommentId, stage)
+//   - уникальный индекс (linearIssueId, parentCommentId, stage) + P2002 recovery
+//   - content-hash short-circuit в воркере
+// Поэтому двойной вызов при гонке webhook'ов безопасен.
+async function evaluateAndTriggerStages(
+  issueId: string,
+  fastify: FastifyInstance,
+) {
+  const [parsed, existingAnalyses] = await Promise.all([
+    parseIssue(issueId),
+    getExistingAnalysesForIssue(issueId),
+  ]);
+
+  const notYetAnalyzed = (stage: string) => (c: CandidateThread) => {
+    const analyzed = existingAnalyses.get(c.rootCommentId)?.has(stage) ?? false;
+    if (analyzed) {
+      fastify.log.info(`Skipping ${stage} for ${c.rootCommentId} — already analyzed`);
+    }
+    return !analyzed;
+  };
+
+  const jobs: Promise<unknown>[] = [];
+
+  if (parsed.status === STATUS_BROKERS_CALL) {
+    const ready = findCandidatesForManagerCall(parsed.candidates)
+      .filter(notYetAnalyzed('manager_call'));
+    if (ready.length > 0) {
+      fastify.log.info(`Manager call: ${ready.length} candidates ready on issue ${issueId}`);
+      jobs.push(...ready.map(c => triggerManagerCall(issueId, parsed, c, fastify)));
+    }
+  }
+
+  if (parsed.status === STATUS_TECH_CALL) {
+    const ready = findCandidatesForTechCall(parsed.candidates)
+      .filter(notYetAnalyzed('technical'));
+    if (ready.length > 0) {
+      fastify.log.info(`Tech call: ${ready.length} candidates ready on issue ${issueId}`);
+      jobs.push(...ready.map(c => triggerTechCall(issueId, parsed, c, fastify)));
+    }
+  }
+
+  if (parsed.status === STATUS_HIRED || parsed.status === STATUS_LOST) {
+    // В одном тикете может быть несколько кандидатов: кого-то реально взяли,
+    // кого-то нет. Финальный анализ ставим КАЖДОМУ по его собственному
+    // маркеру в треде (#hired → decision=hired, #lost → decision=lost),
+    // независимо от того, в какой из двух финальных статусов сам тикет
+    // (Hired/Lost у тикета = исход сделки с клиентом, не приговор каждому
+    // кандидату). Кандидаты без маркера не анализируются.
+    for (const decision of ['hired', 'lost'] as const) {
+      const ready = findCandidatesForFinalResult(parsed.candidates, decision)
+        .filter(notYetAnalyzed('final_result'));
+      if (ready.length > 0) {
+        fastify.log.info(`Final result (${decision}): ${ready.length} candidates ready on issue ${issueId}`);
+        jobs.push(...ready.map(c => triggerFinalResult(issueId, parsed, c, decision, fastify)));
+      }
+    }
+  }
+
+  await Promise.all(jobs);
 }
 
 async function triggerManagerCall(
