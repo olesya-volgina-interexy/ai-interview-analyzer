@@ -319,12 +319,19 @@ async function evaluateAndTriggerStages(
   }
 
   if (parsed.status === STATUS_HIRED || parsed.status === STATUS_LOST) {
-    const decision = parsed.status === STATUS_HIRED ? 'hired' : 'lost';
-    const ready = findCandidatesForFinalResult(parsed.candidates, decision)
-      .filter(notYetAnalyzed('final_result'));
-    if (ready.length > 0) {
-      fastify.log.info(`Final result (${decision}): ${ready.length} candidates ready on issue ${issueId}`);
-      jobs.push(...ready.map(c => triggerFinalResult(issueId, parsed, c, decision, fastify)));
+    // В одном тикете может быть несколько кандидатов: кого-то реально взяли,
+    // кого-то нет. Финальный анализ ставим КАЖДОМУ по его собственному
+    // маркеру в треде (#hired → decision=hired, #lost → decision=lost),
+    // независимо от того, в какой из двух финальных статусов сам тикет
+    // (Hired/Lost у тикета = исход сделки с клиентом, не приговор каждому
+    // кандидату). Кандидаты без маркера не анализируются.
+    for (const decision of ['hired', 'lost'] as const) {
+      const ready = findCandidatesForFinalResult(parsed.candidates, decision)
+        .filter(notYetAnalyzed('final_result'));
+      if (ready.length > 0) {
+        fastify.log.info(`Final result (${decision}): ${ready.length} candidates ready on issue ${issueId}`);
+        jobs.push(...ready.map(c => triggerFinalResult(issueId, parsed, c, decision, fastify)));
+      }
     }
   }
 
