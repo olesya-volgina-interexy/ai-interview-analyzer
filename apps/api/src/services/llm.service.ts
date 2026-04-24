@@ -44,10 +44,16 @@ export async function analyzeInterview(
     ],
     response_format: { type: 'json_object' },
     temperature: 0.1,
-    max_tokens: 3000,
+    max_tokens: 6000,
   });
 
-  const rawContent = response.choices[0].message.content ?? '{}';
+  const choice = response.choices[0];
+  const rawContent = choice.message.content ?? '{}';
+
+  if (choice.finish_reason === 'length') {
+    console.error('LLM response truncated (finish_reason=length):', rawContent);
+    throw new Error('LLM response truncated — increase max_tokens or shorten the schema');
+  }
 
   try {
     const parsed = JSON.parse(rawContent);
