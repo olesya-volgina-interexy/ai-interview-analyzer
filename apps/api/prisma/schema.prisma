@@ -27,9 +27,11 @@ model Interview {
   embeddingId   String?
   managerName   String?
   questions     Json?
+  contentHash   String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  @@index([linearIssueId, parentCommentId, stage])
+  @@unique([linearIssueId, parentCommentId, stage])
+  @@index([linearIssueId, stage, contentHash])
 }
 
 model Client {

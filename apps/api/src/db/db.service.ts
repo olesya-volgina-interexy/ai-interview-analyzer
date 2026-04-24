@@ -1,8 +1,12 @@
+import { Prisma, type Interview } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import type { InterviewMeta, CandidateAnalysis } from '@shared/schemas';
 import { redis } from '../db/redis';
 
-// Создать запись интервью
+// Создать запись интервью.
+// Returns { isDuplicate: true } when a concurrent worker already persisted the
+// same (linearIssueId, parentCommentId, stage) — callers should skip any
+// non-idempotent side effects (Linear post, embedding upsert) in that case.
 export async function createInterview(data: {
   transcript: string;
   meta: InterviewMeta;
@@ -11,38 +15,73 @@ export async function createInterview(data: {
   brokerRequest?: string;
   parentCommentId?: string;
   questions?: Array<{ question: string; topic?: string; candidateHandled?: string }>;
-}) {
-  const interview = await prisma.interview.create({
-    data: {
-      transcript: data.transcript,
-      cvText: data.cvText,
-      brokerRequest: data.brokerRequest,
-      parentCommentId: data.parentCommentId,
-      stage: data.meta.stage,
-      role: data.meta.role,
-      level: data.meta.level,
-      decision: data.meta.decision as string,
-      clientName: data.meta.clientName,
-      candidateName: data.meta.candidateName,
-      comments: data.meta.interviewerComments,
-      krisLink: data.meta.krisLink,
-      cvUrl: data.meta.cvUrl,
-      linearIssueId: data.meta.linearIssueId,
-      managerName: data.meta.managerName,
-      analysis: data.analysis as object,
-      questions: data.questions ? (data.questions as object[]) : undefined,
-    },
-  });
-
-  // Инвалидируем кеш статистики
+  contentHash?: string;
+}): Promise<{ interview: Interview; isDuplicate: boolean }> {
   try {
-    const keys = await redis.keys('stats:overview:*');
-    if (keys.length > 0) await redis.del(...keys);
-  } catch (err) {
-    console.warn('Failed to invalidate stats cache:', err);
-  }
+    const interview = await prisma.interview.create({
+      data: {
+        transcript: data.transcript,
+        cvText: data.cvText,
+        brokerRequest: data.brokerRequest,
+        parentCommentId: data.parentCommentId,
+        stage: data.meta.stage,
+        role: data.meta.role,
+        level: data.meta.level,
+        decision: data.meta.decision as string,
+        clientName: data.meta.clientName,
+        candidateName: data.meta.candidateName,
+        comments: data.meta.interviewerComments,
+        krisLink: data.meta.krisLink,
+        cvUrl: data.meta.cvUrl,
+        linearIssueId: data.meta.linearIssueId,
+        managerName: data.meta.managerName,
+        analysis: data.analysis as object,
+        questions: data.questions ? (data.questions as object[]) : undefined,
+        contentHash: data.contentHash,
+      },
+    });
 
-  return interview;
+    // Инвалидируем кеш статистики
+    try {
+      const keys = await redis.keys('stats:overview:*');
+      if (keys.length > 0) await redis.del(...keys);
+    } catch (err) {
+      console.warn('Failed to invalidate stats cache:', err);
+    }
+
+    return { interview, isDuplicate: false };
+  } catch (err) {
+    if (
+      err instanceof Prisma.PrismaClientKnownRequestError
+      && err.code === 'P2002'
+      && data.meta.linearIssueId
+      && data.parentCommentId
+    ) {
+      const existing = await prisma.interview.findFirst({
+        where: {
+          linearIssueId: data.meta.linearIssueId,
+          parentCommentId: data.parentCommentId,
+          stage: data.meta.stage,
+        },
+      });
+      if (existing) return { interview: existing, isDuplicate: true };
+    }
+    throw err;
+  }
+}
+
+// Returns an existing Interview with the same content fingerprint, so we can
+// skip the LLM call when the same transcript is reposted under a different
+// parentCommentId.
+export async function findInterviewByContentHash(
+  linearIssueId: string,
+  stage: string,
+  contentHash: string,
+) {
+  return prisma.interview.findFirst({
+    where: { linearIssueId, stage, contentHash },
+    select: { id: true, parentCommentId: true },
+  });
 }
 
 // Получить список интервью с фильтрами

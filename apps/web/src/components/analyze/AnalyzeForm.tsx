@@ -209,9 +209,10 @@ export function AnalyzeForm({ onSubmit }: { onSubmit: (data: AnalyzeRequest) => 
       <div className="mt-6 pt-4 border-t border-slate-100">
         <Button
           type="submit"
+          disabled={form.formState.isSubmitting}
           className="w-full h-11 text-sm font-semibold"
         >
-          Start Analysis
+          {form.formState.isSubmitting ? 'Starting...' : 'Start Analysis'}
         </Button>
       </div>
     </form>

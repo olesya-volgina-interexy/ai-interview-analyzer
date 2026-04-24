@@ -8,7 +8,9 @@ import {
   getInterviewsByIds,
   updateEmbeddingId,
   getInterviewsByLinearIssueId,
+  findInterviewByContentHash,
 } from '../db/db.service';
+import { buildContentHash } from '../utils/dedup';
 import { formatSimilarCases } from '../prompts/analyze.prompt';
 import {
   postManagerCallAnalysis,
@@ -71,11 +73,20 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
       await job.updateProgress(80);
 
       // Сохранить финальный анализ в БД
-      const interview = await createInterview({
+      const { interview, isDuplicate } = await createInterview({
         transcript: '',
         meta,
         analysis,
+        parentCommentId,
       });
+
+      if (isDuplicate) {
+        console.log(
+          `Final result for issue ${meta.linearIssueId} / ${parentCommentId} already saved by a concurrent worker — skipping Linear post.`
+        );
+        await job.updateProgress(100);
+        return { interviewId: interview.id, analysis, deduped: true };
+      }
 
       // Постинг в Linear
       if (meta.linearIssueId && parentCommentId) {
@@ -118,6 +129,25 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
       ?? additionalContext?.brokerRequest
       ?? meta.brokerRequest;
 
+    // Шаг 1.5: Content-hash dedup — если тот же транскрипт (+cv+broker) уже
+    // анализировался в этом тикете под другим parentCommentId, не тратим
+    // LLM-вызов и не постим повторно.
+    const contentHash = buildContentHash(fullTranscript, cvText, brokerRequest);
+    if (meta.linearIssueId) {
+      const existing = await findInterviewByContentHash(
+        meta.linearIssueId,
+        (meta as any).stage,
+        contentHash,
+      );
+      if (existing) {
+        console.log(
+          `Identical content already analysed for issue ${meta.linearIssueId} (existing interview ${existing.id}, parentCommentId ${existing.parentCommentId}) — skipping LLM + Linear post.`
+        );
+        await job.updateProgress(100);
+        return { interviewId: existing.id, deduped: true };
+      }
+    }
+
     // Шаг 2: Эмбеддинг
     await job.updateProgress(25);
     const embeddingText = buildEmbeddingText(fullTranscript, cvText, brokerRequest);
@@ -155,7 +185,7 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
     // Шаг 5: Сохранить в PostgreSQL
     const questions = (analysis as any).questions ?? [];
     await job.updateProgress(80);
-    const interview = await createInterview({
+    const { interview, isDuplicate } = await createInterview({
       transcript: fullTranscript,
       meta,
       analysis,
@@ -163,7 +193,16 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
       brokerRequest,
       parentCommentId,
       questions,
+      contentHash,
     });
+
+    if (isDuplicate) {
+      console.log(
+        `Interview for issue ${meta.linearIssueId} / ${parentCommentId} already saved by a concurrent worker — skipping embedding + Linear post.`
+      );
+      await job.updateProgress(100);
+      return { interviewId: interview.id, analysis, deduped: true };
+    }
 
     // Шаг 6: Сохранить вектор в Qdrant
     await saveEmbedding(interview.id, vector, {
