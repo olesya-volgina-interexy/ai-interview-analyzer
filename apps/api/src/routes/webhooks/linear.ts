@@ -10,6 +10,7 @@ import {
 } from '../../services/linear.parser';
 import { extractCVText, detectLevelFromCV, extractNameFromCV, extractNameFromTranscript  } from '../../services/cv.service';
 import { analyzeQueue } from '../../workers/analyze.worker';
+import { buildWebhookJobId } from '../../utils/dedup';
 import { getExistingAnalysesForIssue, upsertIncomingRequest, updateIncomingRequestStatus } from '../../db/db.service';
 import { prisma } from '../../db/prisma';
 import { redis } from '../../db/redis';
@@ -353,25 +354,33 @@ async function triggerManagerCall(
     ]);
     const candidateName = nameFromCV ? nameFromCV : await extractNameFromTranscript(transcript);
 
-    await analyzeQueue.add('analyze', {
-      transcript,
-      meta: {
-        stage: 'manager_call',
-        role: parsed.role,
-        level,
-        clientName: parsed.clientName ?? undefined,
-        candidateName: candidateName ?? undefined,
-        managerName: candidate.managerName ?? undefined,
-        linearIssueId: issueId,
-        cvUrl: candidate.cvUrl ?? undefined,
+    await analyzeQueue.add(
+      'analyze',
+      {
+        transcript,
+        meta: {
+          stage: 'manager_call',
+          role: parsed.role,
+          level,
+          clientName: parsed.clientName ?? undefined,
+          candidateName: candidateName ?? undefined,
+          managerName: candidate.managerName ?? undefined,
+          linearIssueId: issueId,
+          cvUrl: candidate.cvUrl ?? undefined,
+        },
+        cvText,
+        brokerRequest: parsed.brokerRequest ?? undefined,
+        additionalContext: {
+          managerFeedback: candidate.managerFeedback,
+          parentCommentId: candidate.rootCommentId,
+        },
       },
-      cvText,
-      brokerRequest: parsed.brokerRequest ?? undefined,
-      additionalContext: {
-        managerFeedback: candidate.managerFeedback,
-        parentCommentId: candidate.rootCommentId,
+      {
+        jobId: buildWebhookJobId(issueId, candidate.rootCommentId, 'manager_call'),
+        removeOnComplete: { age: 3600 },
+        removeOnFail: { age: 3600 },
       },
-    });
+    );
 
     fastify.log.info(`Manager call queued for candidate ${candidate.rootCommentId}`);
   } catch (err) {
@@ -408,23 +417,31 @@ async function triggerTechCall(
     ]);
     const candidateName = nameFromCV ?? await extractNameFromTranscript(transcript);
 
-    await analyzeQueue.add('analyze', {
-      transcript,
-      meta: {
-        stage: 'technical',
-        role: parsed.role,
-        level,
-        clientName: parsed.clientName ?? undefined,
-        candidateName: candidateName ?? undefined,
-        linearIssueId: issueId,
-        cvUrl: candidate.cvUrl ?? undefined,
+    await analyzeQueue.add(
+      'analyze',
+      {
+        transcript,
+        meta: {
+          stage: 'technical',
+          role: parsed.role,
+          level,
+          clientName: parsed.clientName ?? undefined,
+          candidateName: candidateName ?? undefined,
+          linearIssueId: issueId,
+          cvUrl: candidate.cvUrl ?? undefined,
+        },
+        cvText,
+        brokerRequest: parsed.brokerRequest ?? undefined,
+        additionalContext: {
+          parentCommentId: candidate.rootCommentId,
+        },
       },
-      cvText,
-      brokerRequest: parsed.brokerRequest ?? undefined,
-      additionalContext: {
-        parentCommentId: candidate.rootCommentId,
+      {
+        jobId: buildWebhookJobId(issueId, candidate.rootCommentId, 'technical'),
+        removeOnComplete: { age: 3600 },
+        removeOnFail: { age: 3600 },
       },
-    });
+    );
 
     fastify.log.info(`Tech call queued for candidate ${candidate.rootCommentId}`);
   } catch (err) {
@@ -440,21 +457,29 @@ async function triggerFinalResult(
   fastify: FastifyInstance
 ) {
   try {
-    await analyzeQueue.add('analyze', {
-      transcript: '',
-      meta: {
-        stage: 'final_result' as any,
-        role: parsed.role,
-        level: 'Middle',
-        decision: decision === 'hired' ? 'hired' : 'rejected',
-        clientName: parsed.clientName ?? undefined,
-        linearIssueId: issueId,
+    await analyzeQueue.add(
+      'analyze',
+      {
+        transcript: '',
+        meta: {
+          stage: 'final_result' as any,
+          role: parsed.role,
+          level: 'Middle',
+          decision: decision === 'hired' ? 'hired' : 'rejected',
+          clientName: parsed.clientName ?? undefined,
+          linearIssueId: issueId,
+        },
+        additionalContext: {
+          parentCommentId: candidate.rootCommentId,
+          finalDecision: decision,
+        },
       },
-      additionalContext: {
-        parentCommentId: candidate.rootCommentId,
-        finalDecision: decision,
+      {
+        jobId: buildWebhookJobId(issueId, candidate.rootCommentId, 'final_result'),
+        removeOnComplete: { age: 3600 },
+        removeOnFail: { age: 3600 },
       },
-    });
+    );
 
     fastify.log.info(`Final result queued for candidate ${candidate.rootCommentId}`);
   } catch (err) {
