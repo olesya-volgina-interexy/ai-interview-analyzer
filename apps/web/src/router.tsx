@@ -1,14 +1,18 @@
 import { createRouter, createRoute, createRootRoute, Outlet } from '@tanstack/react-router';
+import { lazy, Suspense } from 'react';
 import { Layout } from './components/layout/Layout';
-import { DashboardPage } from './pages/DashboardPage';
-import { InterviewsPage } from './pages/InterviewsPage';
-import { CandidatesPage } from './pages/CandidatesPage';
-import { CandidateDetailPage } from './pages/CandidateDetailPage';
+
+const DashboardPage        = lazy(() => import('./pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
+const InterviewsPage       = lazy(() => import('./pages/InterviewsPage').then(m => ({ default: m.InterviewsPage })));
+const CandidatesPage       = lazy(() => import('./pages/CandidatesPage').then(m => ({ default: m.CandidatesPage })));
+const CandidateDetailPage  = lazy(() => import('./pages/CandidateDetailPage').then(m => ({ default: m.CandidateDetailPage })));
 
 const rootRoute = createRootRoute({
   component: () => (
     <Layout>
-      <Outlet />
+      <Suspense fallback={null}>
+        <Outlet />
+      </Suspense>
     </Layout>
   ),
 });
