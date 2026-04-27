@@ -112,7 +112,7 @@ MANDATORY RULES
    Topics absent from the interview CANNOT be decision breakers under any circumstances.
 
 5. CV SKILLS CLASSIFICATION
-   - declaredSkills: ALL skills listed in the CV (complete reference list — always populate fully)
+   - declaredSkills: up to 15 most relevant skills listed in the CV (prioritise those aligned with the role/broker request; the UI shows the rest as a "+N more" badge)
    - confirmedSkills: skills where an explicit question was asked AND the candidate demonstrated competence
    - unconfirmedSkills: skills where an explicit question was asked AND the candidate FAILED or was clearly vague
    - Skills NEVER asked about → stay in declaredSkills ONLY. They must NOT appear in unconfirmedSkills,
@@ -422,7 +422,7 @@ Return JSON strictly following this schema:
     "systemDesign": "string — may include evidence from free-form narratives"
   },
   "cvMatch": {
-    "declaredSkills": ["string — ALL skills listed in CV (complete reference list, always fully populated)"],
+    "declaredSkills": ["string — up to 15 most relevant skills from CV (prioritise those aligned with the role/broker request); do NOT exceed 15 items"],
     "confirmedSkills": ["string — skills where an explicit question was asked AND candidate demonstrated competence; narrative mentions alone do NOT qualify"],
     "unconfirmedSkills": ["string — skills where an explicit question was asked AND candidate FAILED or was clearly vague; skills never asked about must NOT appear here"],
     "discrepancies": ["string — skill was in CV, topic was raised directly, candidate failed to demonstrate"],
