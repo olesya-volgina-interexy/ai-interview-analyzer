@@ -100,10 +100,9 @@ export async function clusterTextItems(
 ): Promise<Array<{ text: string; count: number }>> {
   if (items.length === 0) return [];
 
-  const label =
-    type === 'decision_breakers' ? 'rejection reasons'
-      : type === 'weaknesses' ? 'candidate weaknesses'
-        : 'candidate strengths';
+  const label = type === 'decision_breakers' ? 'rejection reasons'
+    : type === 'strengths' ? 'candidate strengths'
+    : 'candidate weaknesses';
 
   const prompt = `You are analyzing recruitment interview data.
 Below is a list of ${label} extracted from multiple interviews. Many items say the same thing in different words.

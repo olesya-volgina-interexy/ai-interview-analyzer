@@ -18,6 +18,7 @@ import {
   postFinalResult,
 } from '../services/linear.poster';
 import type { AnalyzeRequest } from '@shared/schemas';
+import { runStage, describeError } from '../utils/errorLogger';
 
 import { redis } from '../db/redis';
 export { redis };
@@ -45,7 +46,11 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
 
       // Подтягиваем предыдущие анализы из БД по linearIssueId
       const previousAnalyses = meta.linearIssueId
-        ? await getInterviewsByLinearIssueId(meta.linearIssueId, ['manager_call', 'technical'])
+        ? await runStage(
+            'db',
+            () => getInterviewsByLinearIssueId(meta.linearIssueId!, ['manager_call', 'technical']),
+            { op: 'getInterviewsByLinearIssueId', linearIssueId: meta.linearIssueId }
+          )
         : [];
 
       if (previousAnalyses.length === 0) {
@@ -65,20 +70,20 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
 
       await job.updateProgress(40);
 
-      const analysis = await analyzeFinalResult(
-        previousContext,
-        finalDecision ?? 'lost'
+      const analysis = await runStage(
+        'llm',
+        () => analyzeFinalResult(previousContext, finalDecision ?? 'lost'),
+        { op: 'analyzeFinalResult', linearIssueId: meta.linearIssueId }
       );
 
       await job.updateProgress(80);
 
       // Сохранить финальный анализ в БД
-      const { interview, isDuplicate } = await createInterview({
-        transcript: '',
-        meta,
-        analysis,
-        parentCommentId,
-      });
+      const { interview, isDuplicate } = await runStage(
+        'db',
+        () => createInterview({ transcript: '', meta, analysis, parentCommentId }),
+        { op: 'createInterview.final', linearIssueId: meta.linearIssueId }
+      );
 
       if (isDuplicate) {
         console.log(
@@ -91,14 +96,18 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
       // Постинг в Linear
       if (meta.linearIssueId && parentCommentId) {
         try {
-          await postFinalResult(
-            meta.linearIssueId,
-            parentCommentId,
-            analysis,
-            finalDecision ?? 'lost'
+          await runStage(
+            'linear',
+            () => postFinalResult(
+              meta.linearIssueId!,
+              parentCommentId,
+              analysis,
+              finalDecision ?? 'lost'
+            ),
+            { op: 'postFinalResult', linearIssueId: meta.linearIssueId, parentCommentId }
           );
-        } catch (err) {
-          console.error('Failed to post final result to Linear:', err);
+        } catch {
+          // уже залогировали, не ломаем основной флоу
         }
       }
 
@@ -112,10 +121,18 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
     await job.updateProgress(10);
     let cvText = job.data.cvText;
     if (!cvText && meta.cvUrl) {
-      cvText = await extractCVText(meta.cvUrl);
+      cvText = await runStage(
+        'cv',
+        () => extractCVText(meta.cvUrl!),
+        { op: 'extractCVText', cvUrl: meta.cvUrl }
+      );
     }
     if (cvText && !meta.candidateName) {
-      const extractedName = await extractNameFromCV(cvText);
+      const extractedName = await runStage(
+        'cv',
+        () => extractNameFromCV(cvText!),
+        { op: 'extractNameFromCV' }
+      );
       if (extractedName) meta.candidateName = extractedName;
     }
 
@@ -151,20 +168,32 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
     // Шаг 2: Эмбеддинг
     await job.updateProgress(25);
     const embeddingText = buildEmbeddingText(fullTranscript, cvText, brokerRequest);
-    const vector = await embedText(embeddingText);
+    const vector = await runStage(
+      'embed',
+      () => embedText(embeddingText),
+      { op: 'embedText', inputLength: embeddingText.length }
+    );
 
     // Шаг 3: RAG — поиск похожих кейсов
     await job.updateProgress(40);
-    const similarIds = await findSimilarInterviews(vector, {
-      role: meta.role,
-      level: meta.level,
-      stage: (meta as any).stage,
-      clientName: meta.clientName,
-    });
+    const similarIds = await runStage(
+      'qdrant',
+      () => findSimilarInterviews(vector, {
+        role: meta.role,
+        level: meta.level,
+        stage: (meta as any).stage,
+        clientName: meta.clientName,
+      }),
+      { op: 'findSimilarInterviews', role: meta.role, level: meta.level }
+    );
 
     let similarCasesText: string | undefined;
     if (similarIds.length > 0) {
-      const similarCases = await getInterviewsByIds(similarIds);
+      const similarCases = await runStage(
+        'db',
+        () => getInterviewsByIds(similarIds),
+        { op: 'getInterviewsByIds', count: similarIds.length }
+      );
       similarCasesText = formatSimilarCases(
         similarCases.map(c => ({
           stage: c.stage,
@@ -176,25 +205,33 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
 
     // Шаг 4: LLM анализ
     await job.updateProgress(55);
-    const analysis = await analyzeInterview(fullTranscript, meta, {
-      cvText,
-      brokerRequest,
-      similarCases: similarCasesText,
-    });
+    const analysis = await runStage(
+      'llm',
+      () => analyzeInterview(fullTranscript, meta, {
+        cvText,
+        brokerRequest,
+        similarCases: similarCasesText,
+      }),
+      { op: 'analyzeInterview', stage: (meta as any).stage, role: meta.role, level: meta.level }
+    );
 
     // Шаг 5: Сохранить в PostgreSQL
     const questions = (analysis as any).questions ?? [];
     await job.updateProgress(80);
-    const { interview, isDuplicate } = await createInterview({
-      transcript: fullTranscript,
-      meta,
-      analysis,
-      cvText,
-      brokerRequest,
-      parentCommentId,
-      questions,
-      contentHash,
-    });
+    const { interview, isDuplicate } = await runStage(
+      'db',
+      () => createInterview({
+        transcript: fullTranscript,
+        meta,
+        analysis,
+        cvText,
+        brokerRequest,
+        parentCommentId,
+        questions,
+        contentHash,
+      }),
+      { op: 'createInterview', stage: (meta as any).stage, linearIssueId: meta.linearIssueId }
+    );
 
     if (isDuplicate) {
       console.log(
@@ -205,26 +242,41 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
     }
 
     // Шаг 6: Сохранить вектор в Qdrant
-    await saveEmbedding(interview.id, vector, {
-      role: meta.role,
-      level: meta.level,
-      stage: (meta as any).stage,
-      decision: meta.decision ?? 'unknown',
-      clientName: meta.clientName,
-    });
-    await updateEmbeddingId(interview.id, interview.id);
+    await runStage(
+      'qdrant',
+      () => saveEmbedding(interview.id, vector, {
+        role: meta.role,
+        level: meta.level,
+        stage: (meta as any).stage,
+        decision: meta.decision ?? 'unknown',
+        clientName: meta.clientName,
+      }),
+      { op: 'saveEmbedding', interviewId: interview.id }
+    );
+    await runStage(
+      'db',
+      () => updateEmbeddingId(interview.id, interview.id),
+      { op: 'updateEmbeddingId', interviewId: interview.id }
+    );
 
     // Шаг 7: Постинг в Linear
     if (meta.linearIssueId && parentCommentId) {
       try {
         if (analysis.stage === 'manager_call') {
-          await postManagerCallAnalysis(meta.linearIssueId, parentCommentId, analysis);
+          await runStage(
+            'linear',
+            () => postManagerCallAnalysis(meta.linearIssueId!, parentCommentId, analysis),
+            { op: 'postManagerCallAnalysis', linearIssueId: meta.linearIssueId, parentCommentId }
+          );
         } else if (analysis.stage === 'technical') {
-          await postTechnicalAnalysis(meta.linearIssueId, parentCommentId, analysis);
+          await runStage(
+            'linear',
+            () => postTechnicalAnalysis(meta.linearIssueId!, parentCommentId, analysis),
+            { op: 'postTechnicalAnalysis', linearIssueId: meta.linearIssueId, parentCommentId }
+          );
         }
-      } catch (err) {
-        console.error('Failed to post analysis to Linear:', err);
-        // Не ломаем основной флоу
+      } catch {
+        // уже залогировали в runStage, не ломаем основной флоу
       }
     }
 
@@ -242,5 +294,10 @@ analyzeWorker.on('completed', job => {
 });
 
 analyzeWorker.on('failed', (job, err) => {
-  console.error(`Analysis failed: job ${job?.id}`, err.message);
+  console.error(`Analysis failed: job ${job?.id}`, {
+    ...describeError(err),
+    jobId: job?.id,
+    linearIssueId: (job?.data as any)?.meta?.linearIssueId,
+    stage: (job?.data as any)?.meta?.stage,
+  });
 });
