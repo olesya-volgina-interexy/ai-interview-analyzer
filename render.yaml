@@ -1,0 +1,50 @@
+# Render Blueprint — frontend Static Site only.
+#
+# The backend Web Service is intentionally NOT declared here so this Blueprint
+# does not interact with its existing manual configuration on Render.
+
+services:
+  - type: web
+    name: ai-interview-analyzer-frontend
+    runtime: static
+    branch: main
+    buildCommand: pnpm install --frozen-lockfile && pnpm --filter @app/web build
+    staticPublishPath: apps/web/dist
+    pullRequestPreviewsEnabled: false
+
+    envVars:
+      # VITE_API_URL is baked into the bundle at build time. Keep the value
+      # managed in the Render dashboard (sync: false preserves the manual value).
+      - key: VITE_API_URL
+        sync: false
+
+    headers:
+      # Hashed assets under /assets/ — safe to cache forever. Vite emits
+      # content-hashed filenames so any change produces a new URL.
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+
+      # index.html must always revalidate so a new deploy is picked up
+      # immediately instead of being served from a stale browser cache.
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+
+      # Baseline security headers.
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+
+    routes:
+      # SPA fallback — any path that does not match a built file falls back
+      # to index.html so the React router can handle the route client-side.
+      - type: rewrite
+        source: /*
+        destination: /index.html
