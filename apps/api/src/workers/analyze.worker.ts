@@ -151,10 +151,14 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
     // LLM-вызов и не постим повторно.
     const contentHash = buildContentHash(fullTranscript, cvText, brokerRequest);
     if (meta.linearIssueId) {
-      const existing = await findInterviewByContentHash(
-        meta.linearIssueId,
-        (meta as any).stage,
-        contentHash,
+      const existing = await runStage(
+        'db',
+        () => findInterviewByContentHash(
+          meta.linearIssueId!,
+          (meta as any).stage,
+          contentHash,
+        ),
+        { op: 'findInterviewByContentHash', linearIssueId: meta.linearIssueId, stage: (meta as any).stage }
       );
       if (existing) {
         console.log(
