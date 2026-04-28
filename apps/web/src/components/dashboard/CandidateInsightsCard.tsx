@@ -88,7 +88,7 @@ export function RoleScoresCard({ roles }: { roles: RoleScore[] }) {
           <div className="flex-1 flex items-center justify-center text-sm text-slate-400">
             No data
           </div>
-        ) : roles.length >= 3 ? (
+        ) : (
           <div className="flex-1 min-h-[320px]">
             <ResponsiveContainer width="100%" height="100%">
               <RadarChart data={roles} outerRadius="80%">
@@ -107,15 +107,6 @@ export function RoleScoresCard({ roles }: { roles: RoleScore[] }) {
                 />
               </RadarChart>
             </ResponsiveContainer>
-          </div>
-        ) : (
-          <div className="space-y-1.5">
-            {roles.map(({ role, avgScore }) => (
-              <div key={role} className="flex justify-between items-center text-sm">
-                <span className="text-slate-600">{role}</span>
-                <span className={`font-medium ${SCORE_TEXT(avgScore)}`}>{avgScore}/100</span>
-              </div>
-            ))}
           </div>
         )}
       </CardContent>
