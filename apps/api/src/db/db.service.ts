@@ -99,15 +99,29 @@ export async function getInterviews(filters?: {
   const page = filters?.page ?? 1;
   const limit = filters?.limit ?? 20;
 
+  const where: Prisma.InterviewWhereInput = {
+    ...(filters?.role && { role: filters.role }),
+    ...(filters?.level && { level: filters.level }),
+    ...(filters?.stage && { stage: filters.stage }),
+    ...(filters?.clientName && { clientName: { contains: filters.clientName, mode: 'insensitive' } }),
+  };
+
+  if (filters?.managerName === '__uncertain__') {
+    where.managerName = null;
+  } else if (filters?.managerName) {
+    where.managerName = filters.managerName;
+  }
+
+  // 'uncertain' result lives inside analysis JSON (technical recommendation),
+  // while 'hired'/'rejected' are stored on the Interview row as `decision`.
+  if (filters?.decision === 'uncertain') {
+    where.analysis = { path: ['recommendation'], equals: 'uncertain' };
+  } else if (filters?.decision) {
+    where.decision = filters.decision;
+  }
+
   return prisma.interview.findMany({
-    where: {
-      ...(filters?.role && { role: filters.role }),
-      ...(filters?.level && { level: filters.level }),
-      ...(filters?.stage && { stage: filters.stage }),
-      ...(filters?.clientName && { clientName: { contains: filters.clientName, mode: 'insensitive' } }),
-      ...(filters?.decision && { decision: filters.decision }),
-      ...(filters?.managerName && { managerName: filters.managerName }),
-    },
+    where,
     orderBy: { createdAt: 'desc' },
     skip: (page - 1) * limit,
     take: limit,

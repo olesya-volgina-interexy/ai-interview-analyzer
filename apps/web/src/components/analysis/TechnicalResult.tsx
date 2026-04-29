@@ -136,6 +136,11 @@ export function TechnicalResult({ analysis }: { analysis: TechnicalAnalysis }) {
             <p className="text-sm leading-relaxed font-medium" style={{ color: rec.color }}>
               {analysis.recommendation.replace('_', ' ').toUpperCase()}
             </p>
+            {analysis.recommendation === 'uncertain' && analysis.reasoning && (
+              <p className="text-xs leading-relaxed mt-1.5 opacity-90" style={{ color: rec.color }}>
+                {analysis.reasoning}
+              </p>
+            )}
           </div>
         </TabsContent>
 

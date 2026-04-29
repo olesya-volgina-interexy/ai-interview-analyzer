@@ -131,21 +131,23 @@ export function InterviewFilters({ value, onChange, managers = [], roles = [] }:
         options={[
           { value: 'hired', label: 'Hired' },
           { value: 'rejected', label: 'Rejected' },
+          { value: 'uncertain', label: 'Uncertain' },
         ]}
         onChange={v => set('decision', v)}
         triggerClass="min-w-40"
       />
 
-      {managers.length > 0 && (
-        <FilterSelect
-          filterKey="managerName"
-          value={value.managerName}
-          placeholder="All Managers"
-          options={managers.map(m => ({ value: m, label: m }))}
-          onChange={v => set('managerName', v)}
-          triggerClass="min-w-40"
-        />
-      )}
+      <FilterSelect
+        filterKey="managerName"
+        value={value.managerName}
+        placeholder="All Managers"
+        options={[
+          ...managers.map(m => ({ value: m, label: m })),
+          { value: '__uncertain__', label: 'Uncertain' },
+        ]}
+        onChange={v => set('managerName', v)}
+        triggerClass="min-w-40"
+      />
 
       <Input
         value={value.clientName ?? ''}
