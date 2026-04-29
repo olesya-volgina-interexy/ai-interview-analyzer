@@ -37,7 +37,7 @@ export function LevelScoresCard({ levels }: { levels: LevelScore[] }) {
         <CardTitle className="text-sm">Avg Score by Level</CardTitle>
       </CardHeader>
       <CardContent className="flex-1">
-        <div className="flex flex-col gap-2 h-full">
+        <div className="flex flex-col gap-2 h-full md:grid md:grid-cols-2 md:grid-rows-2 lg:flex lg:flex-col">
           {rows.map(({ level, avgScore }) => {
             const hasScore = avgScore !== null;
             const gradient = hasScore
