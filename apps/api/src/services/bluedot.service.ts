@@ -7,8 +7,8 @@ import puppeteer from 'puppeteer';
 const BLUEDOT_PREVIEW_RE = /bluedothq\.com\/preview\//i;
 const LINEAR_UPLOAD_RE = /uploads\.linear\.app\//i;
 
-// Сериализуем запуски Chrome — 512 MB инстанс не тянет несколько процессов
-// параллельно, а воркер обрабатывает очередь с concurrency=3.
+// Сериализуем запуски браузера — на случай если несколько job'ов
+// пытаются открыть сессию одновременно (concurrency=3 в воркере).
 let chromeLock: Promise<unknown> = Promise.resolve();
 function withChromeLock<T>(fn: () => Promise<T>): Promise<T> {
   const prev = chromeLock;
@@ -38,32 +38,32 @@ export async function fetchTranscript(urlOrPdf: string): Promise<string> {
   return fetchRawText(url);
 }
 
-// ── Bluedot preview — Puppeteer ───────────────────────────────────────────
+// ── Bluedot preview — Remote или Local браузер ────────────────────────────
 
 async function fetchBluedotPreview(url: string): Promise<string> {
   return withChromeLock(() => fetchBluedotPreviewInner(url));
 }
 
 async function fetchBluedotPreviewInner(url: string): Promise<string> {
-  const browser = await puppeteer.launch({
-    headless: true,
-    executablePath: process.env.CHROME_PATH,
-    // pipe=true — общаемся с Chrome через прямой IPC-пайп, а не WebSocket.
-    // Убирает "Timed out waiting for WS endpoint URL" на низкоресурсных
-    // инстансах (Render Starter 512MB).
-    pipe: true,
-    timeout: 60_000,
-    // --disable-dev-shm-usage — /dev/shm в контейнере маленький.
-    // --disable-gpu — GPU в headless на сервере нет.
-    // --single-process — один Chrome-процесс вместо дерева → меньше RAM.
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--single-process',
-    ],
-  });
+  // Если задан BROWSER_WS_ENDPOINT — подключаемся к удалённому браузеру
+  // (Browserless, Chrome Cloud и т.д.). Иначе — запускаем локальный Chrome.
+  const wsEndpoint = process.env.BROWSER_WS_ENDPOINT;
+
+  const browser = wsEndpoint
+    ? await puppeteer.connect({ browserWSEndpoint: wsEndpoint })
+    : await puppeteer.launch({
+        headless: true,
+        executablePath: process.env.CHROME_PATH,
+        pipe: true,
+        timeout: 60_000,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--single-process',
+        ],
+      });
 
   try {
     const page = await browser.newPage();
@@ -71,22 +71,13 @@ async function fetchBluedotPreviewInner(url: string): Promise<string> {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     );
 
-    // Bluedot — SPA с долгоживущими соединениями; networkidle2 никогда не
-    // наступает. Ждём только готовности DOM, а наличие контента проверяем
-    // отдельным waitForFunction ниже.
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
-    // Ждём пока отрисуется UI с табами (в body должна появиться строка
-    // "Transcript" как заголовок вкладки).
     await page.waitForFunction(
       () => document.body.innerText.includes('Transcript'),
       { timeout: 60_000, polling: 500 }
     ).catch(() => { /* пойдём дальше — вдруг вкладка уже активна */ });
 
-    // У BlueDot бывает два состояния превью:
-    //   (a) Transcript открыт по умолчанию (повезло — уже есть "Speaker:")
-    //   (b) По умолчанию Overview/Action Items/Topics — нужно кликнуть "Transcript"
-    // Кликаем на вкладку если контент с репликами ещё не виден.
     await page.evaluate(() => {
       if (document.body.innerText.includes('Speaker:')) return;
       const candidates = Array.from(
@@ -97,8 +88,6 @@ async function fetchBluedotPreviewInner(url: string): Promise<string> {
     });
 
     try {
-      // Теперь ждём реальные реплики (маркер "Speaker:") или достаточно
-      // длинный текст.
       await page.waitForFunction(
         () => {
           const t = document.body.innerText;
@@ -107,8 +96,6 @@ async function fetchBluedotPreviewInner(url: string): Promise<string> {
         { timeout: 90_000, polling: 500 }
       );
     } catch (waitErr) {
-      // Таймаут ожидания контента — снимаем диагностику, чтобы в логе
-      // было видно, что реально отдал BlueDot (login? 404? пустой shell?).
       const diag = await page.evaluate(() => ({
         url: location.href,
         title: document.title,
@@ -121,7 +108,6 @@ async function fetchBluedotPreviewInner(url: string): Promise<string> {
       throw waitErr;
     }
 
-    // Извлекаем полный текст страницы, а потом вырезаем секцию транскрипции
     const raw = await page.evaluate(() => document.body.innerText);
     const extracted = extractTranscriptSection(raw);
 
@@ -131,7 +117,13 @@ async function fetchBluedotPreviewInner(url: string): Promise<string> {
 
     return extracted;
   } finally {
-    await browser.close();
+    // При remote-подключении disconnect() отключает клиента, не убивая браузер.
+    // При локальном — close() завершает процесс Chrome.
+    if (wsEndpoint) {
+      browser.disconnect();
+    } else {
+      await browser.close();
+    }
   }
 }
 
@@ -140,17 +132,14 @@ async function fetchBluedotPreviewInner(url: string): Promise<string> {
 function extractTranscriptSection(raw: string): string {
   const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
 
-  // Ищем строку с "Transcript" как заголовок таба
   const transcriptTabIdx = lines.findIndex(l =>
     /^transcript$/i.test(l)
   );
 
-  // Всё после заголовка "Transcript" — это и есть контент
   const contentLines = transcriptTabIdx !== -1
     ? lines.slice(transcriptTabIdx + 1)
     : lines;
 
-  // Убираем мусор: строки навигации, кнопки, поиск
   const noisePatterns = [
     /^AI chat$/i,
     /^Search transcript$/i,
@@ -202,7 +191,6 @@ async function fetchRawText(url: string, withLinearAuth = false): Promise<string
 }
 
 // ── Утилиты ───────────────────────────────────────────────────────────────
-
 
 function isPdfUrl(url: string): boolean {
   return /\.pdf(\?.*)?$/i.test(url) || url.includes('application/pdf');

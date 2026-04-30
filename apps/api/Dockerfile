@@ -1,35 +1,11 @@
-FROM node:20-slim
-
-RUN apt-get update && apt-get install -y \
-    chromium \
-    fonts-liberation \
-    libappindicator3-1 \
-    libasound2 \
-    libatk-bridge2.0-0 \
-    libatk1.0-0 \
-    libcups2 \
-    libdbus-1-3 \
-    libgdk-pixbuf2.0-0 \
-    libnspr4 \
-    libnss3 \
-    libx11-xcb1 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    xdg-utils \
-    --no-install-recommends && \
-    rm -rf /var/lib/apt/lists/*
-
-ENV CHROME_PATH=/usr/bin/chromium
+# ── Stage 1: build ──
+FROM node:20-slim AS builder
 
 RUN npm install -g pnpm
 
 WORKDIR /app
 
-COPY pnpm-workspace.yaml ./
-COPY package.json ./
-COPY pnpm-lock.yaml ./
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/ ./packages/
 COPY apps/api/ ./apps/api/
 
@@ -39,6 +15,26 @@ WORKDIR /app/apps/api
 
 RUN pnpm exec prisma generate
 RUN pnpm build
+
+# ── Stage 2: production ──
+FROM node:20-slim
+
+RUN npm install -g pnpm
+
+WORKDIR /app
+
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
+COPY packages/ ./packages/
+COPY apps/api/package.json ./apps/api/
+COPY apps/api/prisma ./apps/api/prisma
+
+RUN pnpm install --frozen-lockfile --prod
+
+WORKDIR /app/apps/api
+
+RUN pnpm exec prisma generate
+
+COPY --from=builder /app/apps/api/dist ./dist
 
 EXPOSE 3001
 
