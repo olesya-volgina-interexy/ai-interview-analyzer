@@ -14,7 +14,8 @@
 6. [Создание анализа вручную («+ New Analysis»)](#создание-анализа-вручную--new-analysis)
 7. [Модалка интервью (Analysis, Transcript, CV, Questions)](#модалка-интервью-analysis-transcript-cv-questions)
 8. [Интеграция с Linear](#интеграция-с-linear)
-9. [Частые задачи и подсказки](#частые-задачи-и-подсказки)
+9. [Как считается статистика](#как-считается-статистика)
+10. [Частые задачи и подсказки](#частые-задачи-и-подсказки)
 
 ---
 
@@ -53,15 +54,20 @@
 
 Воронка найма за период:
 
-- **Requests Stats** — количество входящих тикетов по клиентам и по статусам (Triage, In Progress, Client Review, Manager Call, Technical, Hired, Rejected, On Hold). Есть кнопка **Refresh** — принудительно пересчитать (сбросить кэш).
-- **Pipeline Funnel** — столбчатая воронка CV Sent → Manager Call → Technical → Final Result → Hired. Внизу: проценты конверсии `Manager Call → Technical` и `Technical → Hired`, а также общее число отправленных CV.
+- **Requests Stats** — количество входящих тикетов по статусам и по клиентам. Возможные статусы: `Triage`, `New`, `In Progress`, `Client Review`, `CV Sent`, `Manager Call`, `Technical`, `Hired`, `Rejected` / `Lost`, `On Hold`, `Dropped`. У шести самых частых (Hired, Technical, Manager Call, In Progress, New, Rejected, Lost) — фирменная окраска точки/полоски, у остальных серая. Внутри — две вкладки: **By Status** и **By Client**. Кнопка **Refresh** принудительно сбрасывает кэш и пересчитывает.
+- **Pipeline Funnel** — столбчатая воронка CV Sent → Manager Call → Technical → Final Result → On Hold → Hired. Внизу: общее количество отправленных CV (`Total CVs` — сумма `cvSentCount` по тикетам периода) и две конверсии — `Manager Call → Technical` и `Technical → Hired`.
 - **Time on Stages** — верхний акцентный блок показывает среднее время от появления тикета до найма (`Avg time from Triage to Hired`). Ниже — сегментированная полоса прогресса по стадиям (Triage / In Progress / Client Review / Broker's Call / Tech Call) с подписями времени в днях. Под ней — тренд количества интервью по месяцам.
 
 ### Вкладка **Quality & Insights**
 
-- **Quality Stats** — топ-кластеры причин отказа (`Decision Breakers`), слабостей кандидатов (`Weaknesses`), внешнего фидбека от клиентов (`External Reasons`) и hire rate по ролям. Текстовые причины кластеризуются через LLM.
-- **Role Scores** — средний скор по вакансиям.
-- **Level Scores** — средний скор по уровням (Junior / Middle / Senior / Architect).
+- **Quality Insights** — четыре под-вкладки:
+    - **Rejection reasons** — топ-кластеры `decisionBreakers` из всех интервью периода;
+    - **Weaknesses** — топ-кластеры слабостей кандидатов;
+    - **External reasons** — топ-кластеры внешнего фидбека от клиентов (`IncomingRequest.externalFeedback`);
+    - **Hire rate by role** — процент найма по ролям с количеством интервью.
+  Текстовые причины кластеризуются через LLM (`clusterTextItems`) — близкие по смыслу формулировки сворачиваются в одну с подсчётом частоты.
+- **Avg Score by Role** — radar-диаграмма средних скоров по ролям.
+- **Avg Score by Level** — карточки со средним скором по уровням Junior / Middle / Senior / Architect (на планшете укладывается в сетку 2×2).
 
 ### Блок **Recent Analyses**
 
@@ -80,8 +86,8 @@
 | **Role** | Точное совпадение с ролью |
 | **Level** | Junior / Middle / Senior / Architect |
 | **Stage** | Manager Call / Technical / Final Result |
-| **Decision** | Hired / Rejected |
-| **Manager** | Выбор из реально встречавшихся имён менеджеров |
+| **Decision** | Hired / Rejected / **Uncertain**. `Hired`/`Rejected` берутся из колонки `decision` в БД. `Uncertain` — это технические интервью, у которых LLM выставила `recommendation = 'uncertain'` внутри JSON-анализа (в БД нет ни «hired», ни «rejected», но в карточке отображается оранжевый бейдж Uncertain). |
+| **Manager** | Выбор из реально встречавшихся имён менеджеров **+ опция Uncertain** — показывает интервью, где имя менеджера не было распознано (`managerName IS NULL`). На технической стадии менеджер сейчас не пишется, поэтому такие записи тоже попадают в `Uncertain`. |
 | **Search by client...** | Подстроковый поиск по названию клиента (регистронезависимо) |
 | **Clear** | Сбросить все фильтры |
 
@@ -284,6 +290,104 @@
 - **`#hired ok` или `#lost — спасибо`** вместо чистого `#hired`/`#lost` — финальный маркер определяется по **точному совпадению**, любой дополнительный текст ломает распознавание.
 - **Маркер в корневом комментарии тикета**, а не в треде кандидата — ветка не распознаётся как кандидатская, маркер игнорируется.
 - **Перевод в `Hired`/`Lost` без `#hired`/`#lost`-реплая** — система не понимает, для какого из кандидатов в тикете это решение, и финал не запускает.
+
+---
+
+## Как считается статистика
+
+Раздел отвечает на вопрос «откуда взялась эта цифра». Полезно, если число на дашборде кажется странным или хочется понять, что именно фильтр периода захватывает.
+
+### Источники данных
+
+В системе три основные таблицы, которые формируют всю аналитику:
+
+| Таблица | Что хранит | Откуда берётся |
+|---|---|---|
+| **`Interview`** | Каждый AI-анализ (manager_call / technical / final_result). Содержит JSON-поле `analysis` со скором, рекомендацией, сильными/слабыми сторонами, decision breakers, и `questions`. | Создаётся воркером `analyze.worker` по вебхуку Linear или ручному `+ New Analysis`. |
+| **`IncomingRequest`** | Один тикет Linear = одна запись. Хранит текущий статус (`triage`, `new`, `in_progress`, `client_review`, `cv_sent`, `manager_call`, `technical`, `hired`, `rejected`/`lost`, `on_hold`, `dropped`), счётчик отправленных CV (`cvSentCount`), внешний фидбек от клиента (`externalFeedback`), `clientName`, `role`. | Upsert при первом вебхуке от Linear, обновляется при смене статуса/title и при `#feedback`-комментах. |
+| **`IncomingRequestStatusHistory`** | По одной строке на каждое попадание тикета в новый статус (`status` + `enteredAt`). Используется для расчёта длительности стадий. | Пишется автоматически при upsert и каждом изменении статуса в `IncomingRequest`. |
+
+`Interview` и `IncomingRequest` связаны строкой `linearIssueId` (без FK). Один тикет может иметь несколько `Interview` (по одному на стадию × кандидата).
+
+### Два уровня аналитики
+
+На бэкенде живут **два разных эндпоинта**, которые питают разные блоки UI:
+
+| Эндпоинт | Что считает | На что влияет селектор периода |
+|---|---|---|
+| `GET /api/interviews/stats` | All-time KPI: `Total Interviews`, `Hire Rate`, `Avg Score`, `Top Role`, разбивка по стадиям и ролям. | **Нет.** Это «пульс системы», период игнорируется. |
+| `GET /api/stats/overview?from=&to=` | Всё содержимое вкладок Pipeline и Quality & Insights — Requests, Funnel, Timeline, Quality, Avg Score by Level/Role. | **Да.** Все цифры в этих вкладках считаются только за выбранный диапазон. |
+
+### Что попадает в KPI (верхние карточки)
+
+| Карточка | Формула |
+|---|---|
+| **Total Interviews** | `count(Interview)` за всё время. В подписи — сколько из них manager_call и technical. |
+| **Hire Rate** | Доля `decision = 'hired'` среди интервью со `stage = 'technical'`, всё время. Округляется до целого процента. |
+| **Avg Score** | Среднее по `analysis.score` среди технических интервью, всё время. Округляется до целого. |
+| **Top Role** | Самая часто встречающаяся `role` в `Interview`. |
+
+> Важно: KPI считает по таблице `Interview` (т.е. по реально проанализированным интервью), а не по тикетам Linear. Тикет, по которому ещё не было анализа, в KPI не виден.
+
+### Что попадает в Pipeline-вкладку
+
+Эндпоинт фильтрует по периоду по двум разным полям:
+
+- `IncomingRequest` — по `receivedAt` (когда тикет создан в Linear).
+- `Interview` — по `createdAt` (когда был создан анализ).
+
+Это значит: тикет, открытый в марте, но дошедший до Hired в апреле, в апрельской выборке будет иметь Hired в `pipeline.hired`, но НЕ будет в `requests.total` (его `receivedAt` мартовский).
+
+#### Requests Stats
+- `total` = `count(IncomingRequest)` с `receivedAt` в периоде.
+- `byStatus` — группировка тех же тикетов по полю `status`.
+- `byClient` — по `clientName`.
+- `byRole` — по `role`.
+
+#### Pipeline Funnel
+- **CV Sent** = тикеты со `status = 'cv_sent'` или `cvSentCount > 0` (заявок, по которым отправили хотя бы одно CV).
+- **Total CVs** = сумма `cvSentCount` по тем же тикетам (одна заявка может породить несколько CV).
+- **Manager Call / Technical / Final Result** = `count(Interview)` со `stage = …` за период.
+- **Hired / Rejected** = `count(Interview)` с `decision = 'hired' / 'rejected'`.
+- **On Hold** = `count(IncomingRequest)` со `status = 'on_hold'`.
+- **Conversion `Manager Call → Technical`** = `reachedTechnical / reachedManagerCall` × 100.
+- **Conversion `Technical → Hired`** = `hired / reachedTechnical` × 100.
+
+#### Time on Stages
+- **Длительность каждой стадии** считается из `IncomingRequestStatusHistory`: для каждого тикета берётся время между двумя соседними записями о смене статуса. Незавершённая (текущая) стадия не учитывается — ждём следующего перехода.
+- **Avg time from Triage to Hired** — среднее по тикетам, дошедшим до `hired`: `(время входа в hired − время первой записи истории)`.
+- **Тренд по месяцам** — `count(Interview)` группой по `YYYY-MM` от `createdAt`.
+
+> Тикеты, созданные **до внедрения трекинга истории** (нет записей в `IncomingRequestStatusHistory`), в средние Time on Stages не попадают.
+
+### Что попадает в Quality & Insights
+
+#### Quality Insights (текстовые кластеры)
+- **Rejection reasons** — раскручиваем `analysis.decisionBreakers` (массив строк) по всем `Interview` периода → подаём в `clusterTextItems` → LLM возвращает топ-кластеры с частотой.
+- **Weaknesses** — то же самое для `analysis.weaknesses` (фразы `not mentioned` отфильтровываются).
+- **External reasons** — `IncomingRequest.externalFeedback` от тикетов периода → LLM-кластеризация.
+- **Hire rate by role** — для каждой роли `hired / total` среди технических интервью с этой ролью; сортируется UI'ем.
+
+> Кластеризация — единственное место в дашборде, где **синхронно вызывается LLM** (Qwen). Поэтому первый запрос за новый период идёт дольше (~3-5 с); после этого результат лежит в кэше Redis 30 мин.
+
+#### Avg Score by Level / Role
+- Берём `analysis.score` со всех интервью периода, у которых score не пустой.
+- Группируем по `level` (Junior / Middle / Senior / Architect) или по `role`.
+- Внутри группы — среднее, округлённое до целого.
+
+### Кэширование и Refresh
+
+- Ответ `GET /api/stats/overview` кешируется в Redis по ключу `stats:overview:<from>:<to>` с TTL **30 минут**.
+- При создании нового `Interview` бэкенд автоматически инвалидирует **все** ключи `stats:overview:*` (так что после нового анализа дашборд пересчитается на следующем заходе).
+- Кнопка **Refresh** в карточке Requests Stats и параметр `?refresh=1` в URL — принудительно удаляют кеш для текущего периода.
+- Прямые правки в Postgres (минуя API) **не триггерят** инвалидацию: либо ждать TTL, либо нажать Refresh.
+
+### Что в статистике НЕ учитывается
+
+- **Удалённые тикеты Linear.** Удаление тикета в Linear само по себе не приходит как webhook-событие, и сейчас система его не обрабатывает: запись `IncomingRequest` (и связанные `Interview`) остаётся в БД и продолжает попадать в статистику. Никакого статуса «deleted» в Pipeline или счётчика «создано, но затем удалено» в данный момент нет.
+- **Удалённые анализы.** Если интервью удалено через UI (`Delete` в модалке) или эндпоинт `DELETE /api/interviews/:id`, оно физически исчезает из БД и больше нигде в статистике не учитывается. Никакого «soft delete» / архива нет.
+- **Дубликаты.** Уникальный индекс `(linearIssueId, parentCommentId, stage)` гарантирует, что одно и то же интервью не попадёт в статистику дважды; повторные триггеры от Linear молча отбрасываются.
+- **Тикеты без `linearIssueId`.** Анализы, созданные через ручной `+ New Analysis` без указания Linear ID, есть в `Interview`, но НЕ имеют записи `IncomingRequest`. Они попадают в KPI / Pipeline Funnel / Quality / Avg Scores, но НЕ влияют на Requests Stats и Time on Stages.
 
 ---
 

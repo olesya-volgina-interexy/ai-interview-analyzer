@@ -115,6 +115,7 @@ export const interviewsApi = {
     decision?: string;
     managerName?: string;
     page?: number;
+    limit?: number;
   }) => api.get<InterviewListItem[]>('/interviews', { params: filters }),
 
   getManagers: () =>
