@@ -90,25 +90,35 @@ export function DashboardPage() {
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  // Date pickers (and our presets) leave `to` at 00:00 of the chosen day,
+  // so without this normalization "Apr 1 – Apr 30" actually means
+  // "Apr 1 00:00 – Apr 30 00:00" and excludes everything that happens on Apr 30.
+  const fromIso = dateRange.from?.toISOString();
+  const toIso = dateRange.to
+    ? new Date(
+        dateRange.to.getFullYear(),
+        dateRange.to.getMonth(),
+        dateRange.to.getDate(),
+        23, 59, 59, 999,
+      ).toISOString()
+    : undefined;
+
   const { data: overview, isLoading: overviewLoading } = useQuery({
-    queryKey: ['stats', 'overview', dateRange],
-    queryFn: () => statsApi.getOverview({
-      from: dateRange.from?.toISOString(),
-      to: dateRange.to?.toISOString(),
-    }).then(r => r.data),
-    enabled: !!dateRange.from && !!dateRange.to,
+    queryKey: ['stats', 'overview', fromIso, toIso],
+    queryFn: () => statsApi.getOverview({ from: fromIso, to: toIso }).then(r => r.data),
+    enabled: !!fromIso && !!toIso,
   });
 
   const handleRefreshRequests = useCallback(async () => {
     setIsRefreshing(true);
     const fresh = await statsApi.getOverview({
-      from: dateRange.from?.toISOString(),
-      to: dateRange.to?.toISOString(),
+      from: fromIso,
+      to: toIso,
       refresh: '1',
     }).then(r => r.data);
-    queryClient.setQueryData(['stats', 'overview', dateRange], fresh);
+    queryClient.setQueryData(['stats', 'overview', fromIso, toIso], fresh);
     setIsRefreshing(false);
-  }, [dateRange, queryClient]);
+  }, [fromIso, toIso, queryClient]);
 
   const isEmpty = !statsLoading && stats?.total === 0;
 
