@@ -6,6 +6,7 @@ import { analyzeRoutes } from './routes/analyze';
 import { interviewRoutes } from './routes/interviews';
 import { statsRoutes } from './routes/stats';
 import { candidateRoutes } from './routes/candidates';
+import { uploadRoutes } from './routes/upload';
 import './workers/analyze.worker';
 import { linearWebhookRoutes } from './routes/webhooks/linear';
 import { verifyLinearAuth } from './services/linear.service';
@@ -29,6 +30,7 @@ app.register(analyzeRoutes, { prefix: '/api' });
 app.register(interviewRoutes, { prefix: '/api' });
 app.register(statsRoutes, { prefix: '/api' });
 app.register(candidateRoutes, { prefix: '/api' });
+app.register(uploadRoutes, { prefix: '/api' });
 
 app.get('/health', async () => ({ status: 'ok', version: '1.0.0' }));
 

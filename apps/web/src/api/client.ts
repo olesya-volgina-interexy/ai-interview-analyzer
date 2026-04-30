@@ -252,3 +252,13 @@ export const statsApi = {
   getOverview: (params?: { from?: string; to?: string; refresh?: string }) =>
     api.get<StatsOverview>('/stats/overview', { params }),
 };
+
+export const uploadApi = {
+  uploadFile: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post<{ text: string; filename: string }>('/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+};

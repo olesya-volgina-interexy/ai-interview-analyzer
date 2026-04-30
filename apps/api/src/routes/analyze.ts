@@ -10,13 +10,23 @@ function buildDedupJobId(body: unknown): string {
     .update(JSON.stringify(body))
     .digest('hex')
     .slice(0, 16);
-  return `analyze:${hash}`;
+  return `analyze-${hash}`;
 }
 
 export async function analyzeRoutes(fastify: FastifyInstance) {
   fastify.post('/analyze', async (request, reply) => {
     const body = AnalyzeRequestSchema.parse(request.body);
     const jobId = buildDedupJobId(body);
+
+    // Если ранее job с тем же payload упал — выкидываем, чтобы повтор
+    // не "залип" на дедупе старой ошибки.
+    const existing = await analyzeQueue.getJob(jobId);
+    if (existing) {
+      const state = await existing.getState();
+      if (state === 'failed') {
+        await existing.remove();
+      }
+    }
 
     const job = await analyzeQueue.add('analyze', body, {
       jobId,

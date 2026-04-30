@@ -3,6 +3,7 @@
 
 export type PipelineStage =
   | 'cv'
+  | 'transcript'
   | 'embed'
   | 'rag'
   | 'llm'
