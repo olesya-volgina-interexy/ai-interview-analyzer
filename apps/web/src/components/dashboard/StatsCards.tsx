@@ -1,6 +1,6 @@
 import { Card, CardContent } from '@/components/ui/card';
-import { Users, TrendingUp, Target, Award } from 'lucide-react';
-import type { InterviewStats } from '@/api/client';
+import { Users, TrendingUp, Target, Award, Briefcase } from 'lucide-react';
+import type { InterviewStats, StatsOverview } from '@/api/client';
 import type { ReactNode } from 'react';
 
 interface StatCardProps {
@@ -30,11 +30,17 @@ function StatCard({ label, value, sub, icon, accent }: StatCardProps) {
   );
 }
 
-export function StatsCards({ stats }: { stats: InterviewStats | undefined }) {
+export function StatsCards({
+  stats,
+  overview,
+}: {
+  stats: InterviewStats | undefined;
+  overview?: StatsOverview;
+}) {
   if (!stats) {
     return (
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[...Array(4)].map((_, i) => (
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+        {[...Array(5)].map((_, i) => (
           <Card key={i}>
             <CardContent className="pt-5 pb-4">
               <div className="flex items-start gap-3">
@@ -54,8 +60,21 @@ export function StatsCards({ stats }: { stats: InterviewStats | undefined }) {
   const managerCalls = stats.byStage?.manager_call ?? 0;
   const technical = stats.byStage?.technical ?? 0;
 
+  const totalRequests = overview?.requests.total ?? 0;
+  const hiredRequests = overview?.requests.byStatus?.hired ?? 0;
+  const linearHireRate = totalRequests > 0
+    ? Math.round((hiredRequests / totalRequests) * 100)
+    : 0;
+
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <StatCard
+        icon={<Briefcase size={18} />}
+        accent="bg-sky-50 text-sky-600"
+        label="Linear Hire Rate"
+        value={overview ? `${linearHireRate}%` : '—'}
+        sub={overview ? `${hiredRequests} of ${totalRequests} vacancies closed` : 'Loading…'}
+      />
       <StatCard
         icon={<Users size={18} />}
         accent="bg-[#5067F4]/10 text-[#5067F4]"

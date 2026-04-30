@@ -135,7 +135,7 @@ export function DashboardPage() {
       </div>
 
       {/* KPI Cards - always visible */}
-      <StatsCards stats={stats} />
+      <StatsCards stats={stats} overview={overview} />
 
       {isEmpty ? (
         <EmptyState
