@@ -5,7 +5,16 @@ import { prisma } from '../db/prisma';
 export async function interviewRoutes(fastify: FastifyInstance) {
   fastify.get('/interviews', async (request) => {
     const { role, level, stage, clientName, decision, managerName, page, limit } = request.query as any;
-    return getInterviews({ role, level, stage, clientName, decision, managerName, page, limit });
+    return getInterviews({
+      role,
+      level,
+      stage,
+      clientName,
+      decision,
+      managerName,
+      page: page !== undefined ? Number(page) : undefined,
+      limit: limit !== undefined ? Number(limit) : undefined,
+    });
   });
 
   fastify.get('/interviews/stats', async () => {
