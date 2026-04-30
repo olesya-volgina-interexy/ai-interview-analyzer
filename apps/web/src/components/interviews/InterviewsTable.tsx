@@ -53,9 +53,14 @@ interface InterviewsTableProps {
   data: InterviewListItem[];
   isLoading: boolean;
   onRowClick: (id: string) => void;
+  page?: number;
+  hasNext?: boolean;
+  onPageChange?: (page: number) => void;
 }
 
-export function InterviewsTable({ data, isLoading, onRowClick }: InterviewsTableProps) {
+export function InterviewsTable({ data, isLoading, onRowClick, page, hasNext, onPageChange }: InterviewsTableProps) {
+  const showPagination = !!onPageChange && page !== undefined && (page > 1 || hasNext);
+
   if (isLoading) {
     return (
       <div className="space-y-2">
@@ -177,6 +182,26 @@ export function InterviewsTable({ data, isLoading, onRowClick }: InterviewsTable
           })}
         </tbody>
       </table>
+
+      {showPagination && (
+        <div className="flex items-center justify-center gap-3 p-3 border-t border-slate-100">
+          <button
+            onClick={() => onPageChange!(Math.max(1, (page ?? 1) - 1))}
+            disabled={page === 1}
+            className="text-sm px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            ← Previous
+          </button>
+          <span className="text-sm text-slate-400">Page {page}</span>
+          <button
+            onClick={() => onPageChange!((page ?? 1) + 1)}
+            disabled={!hasNext}
+            className="text-sm px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            Next →
+          </button>
+        </div>
+      )}
     </div>
   );
 }

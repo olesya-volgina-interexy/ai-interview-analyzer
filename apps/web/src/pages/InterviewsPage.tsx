@@ -8,10 +8,18 @@ import { CandidateModal } from '@/components/modals/CandidateModal';
 export function InterviewsPage() {
   const [filters, setFilters] = useState({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const limit = 20;
+  const fetchLimit = limit + 1;
+
+  const handleFiltersChange = (next: typeof filters) => {
+    setFilters(next);
+    setPage(1);
+  };
 
   const { data: interviews, isLoading } = useQuery({
-    queryKey: ['interviews', filters],
-    queryFn: () => interviewsApi.getList(filters).then(r => r.data),
+    queryKey: ['interviews', filters, page],
+    queryFn: () => interviewsApi.getList({ ...filters, page, limit: fetchLimit }).then(r => r.data),
   });
 
   const { data: managers } = useQuery({
@@ -24,19 +32,26 @@ export function InterviewsPage() {
     queryFn: () => interviewsApi.getRoles().then(r => r.data),
   });
 
+  const items = interviews ?? [];
+  const displayItems = items.slice(0, limit);
+  const hasNext = items.length > limit;
+
   return (
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Interview History</h1>
-        <span className="text-sm text-slate-500">{interviews?.length ?? 0} records</span>
+        <span className="text-sm text-slate-500">{displayItems.length} records</span>
       </div>
 
-      <InterviewFilters value={filters} onChange={setFilters} managers={managers ?? []} roles={roles ?? []} />
+      <InterviewFilters value={filters} onChange={handleFiltersChange} managers={managers ?? []} roles={roles ?? []} />
 
       <InterviewsTable
-        data={interviews ?? []}
+        data={displayItems}
         isLoading={isLoading}
         onRowClick={id => setSelectedId(id)}
+        page={page}
+        hasNext={hasNext}
+        onPageChange={setPage}
       />
 
       <CandidateModal
