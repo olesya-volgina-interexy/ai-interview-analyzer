@@ -3,6 +3,7 @@ import { embedText, buildEmbeddingText } from '../services/embedding.service';
 import { findSimilarInterviews, saveEmbedding } from '../services/rag.service';
 import { analyzeInterview, analyzeFinalResult } from '../services/llm.service';
 import { extractCVText, detectLevelFromCV, extractNameFromCV } from '../services/cv.service';
+import { fetchTranscript } from '../services/bluedot.service';
 import {
   createInterview,
   getInterviewsByIds,
@@ -37,7 +38,8 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
 }>(
   'analyze',
   async (job) => {
-    const { transcript, meta, additionalContext } = job.data;
+    const { meta, additionalContext } = job.data;
+    let { transcript } = job.data;
     const { parentCommentId, finalDecision } = additionalContext ?? {};
 
     // ── Финальный анализ (отдельный флоу) ────────────────────────────────
@@ -116,6 +118,22 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
     }
 
     // ── Стандартный анализ (manager_call / technical) ─────────────────────
+
+    // Шаг 0: загружаем транскрипт по ссылке, если текста нет
+    if ((!transcript || transcript.length < 100) && meta.transcriptUrl) {
+      transcript = await runStage(
+        'transcript',
+        () => fetchTranscript(meta.transcriptUrl!),
+        { op: 'fetchTranscript', transcriptUrl: meta.transcriptUrl }
+      );
+    }
+    if (!transcript || transcript.length < 100) {
+      throw new Error(
+        meta.transcriptUrl
+          ? `Failed to load transcript from ${meta.transcriptUrl} (empty or too short)`
+          : 'No transcript text or URL provided'
+      );
+    }
 
     // Шаг 1: CV
     await job.updateProgress(10);
