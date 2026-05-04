@@ -4,7 +4,7 @@ export const InterviewStageSchema = z.enum(['manager_call', 'technical']);
 
 export const InterviewMetaSchema = z.object({
   stage: InterviewStageSchema,                   // ← NEW: этап
-  role: z.enum(['Backend', 'Frontend', 'Fullstack', 'DevOps', 'QA', 'Mobile']),
+  role: z.string().min(1).max(100),
   level: z.enum(['Junior', 'Middle', 'Senior', 'Architect']),
   // decision только для technical этапа
   decision: z.enum(['hired', 'rejected']).optional(),
@@ -15,6 +15,7 @@ export const InterviewMetaSchema = z.object({
   krisLink: z.string().url().optional(),
   linearIssueId: z.string().optional(),
   cvUrl: z.string().url().optional(),
+  transcriptUrl: z.string().url().optional(),
   brokerRequest: z.string().optional(),
   managerName: z.string().optional(),
 });
@@ -125,11 +126,17 @@ export const CandidateAnalysisSchema = z.discriminatedUnion('stage', [
 ]);
 
 export const AnalyzeRequestSchema = z.object({
-  transcript: z.string().min(100),
+  transcript: z.string().optional(),
   meta: InterviewMetaSchema,
   cvText: z.string().optional(),
   brokerRequest: z.string().optional(),
-});
+}).refine(
+  data => (data.transcript && data.transcript.length >= 100) || !!data.meta.transcriptUrl,
+  {
+    message: 'Provide either transcript text (min 100 characters) or a transcript URL',
+    path: ['transcript'],
+  }
+);
 
 export const ChatMessageSchema = z.object({
   role: z.enum(['user', 'assistant']),

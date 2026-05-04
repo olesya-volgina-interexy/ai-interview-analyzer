@@ -10,23 +10,22 @@ const LINEAR_UPLOAD_RE = /uploads\.linear\.app\//i;
 
 // ── Главная функция извлечения текста ──────────────────────────────────
 
+const CV_MAX_CHARS = 7_000;
+
 export async function extractCVText(cvUrl: string): Promise<string> {
   const url = cvUrl.trim();
   if (!url) return '';
 
   try {
-    // 1. Если это PDF (по расширению)
     if (isPdfUrl(url)) {
-      return await fetchPdfContent(url);
+      return await fetchPdfContent(url, CV_MAX_CHARS);
     }
 
-    // 2. Если это текстовый файл или вложение Linear
     if (isTextFile(url) || LINEAR_UPLOAD_RE.test(url)) {
-      return await fetchRawTextContent(url, LINEAR_UPLOAD_RE.test(url));
+      return await fetchRawTextContent(url, CV_MAX_CHARS, LINEAR_UPLOAD_RE.test(url));
     }
 
-    // 3. Для всех остальных ссылок (включая VisualCV и обычные веб-страницы)
-    return await fetchGenericWebContent(url);
+    return await fetchGenericWebContent(url, CV_MAX_CHARS);
   } catch (err: any) {
     logError(url, err);
     return '';
@@ -35,7 +34,7 @@ export async function extractCVText(cvUrl: string): Promise<string> {
 
 // ── Приватные методы загрузки и парсинга ────────────────────────────────
 
-async function fetchPdfContent(url: string): Promise<string> {
+async function fetchPdfContent(url: string, maxChars: number): Promise<string> {
   const res = await axios.get(url, {
     responseType: 'arraybuffer',
     timeout: 30_000,
@@ -46,10 +45,10 @@ async function fetchPdfContent(url: string): Promise<string> {
   const text = parsed.text.trim();
 
   if (!text) throw new Error(`PDF content is empty`);
-  return text.slice(0, 7000);
+  return text.slice(0, maxChars);
 }
 
-async function fetchRawTextContent(url: string, withLinearAuth = false): Promise<string> {
+async function fetchRawTextContent(url: string, maxChars: number, withLinearAuth = false): Promise<string> {
   const headers: Record<string, string> = { 'User-Agent': 'Mozilla/5.0' };
 
   if (withLinearAuth && process.env.LINEAR_API_KEY) {
@@ -57,13 +56,12 @@ async function fetchRawTextContent(url: string, withLinearAuth = false): Promise
   }
 
   const res = await axios.get(url, { timeout: 20_000, headers });
-  
-  // Если пришли данные не в строке (например, JSON), приводим к строке
+
   const text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-  return text.slice(0, 7000);
+  return text.slice(0, maxChars);
 }
 
-async function fetchGenericWebContent(url: string): Promise<string> {
+async function fetchGenericWebContent(url: string, maxChars: number): Promise<string> {
   const response = await axios.get(url, {
     responseType: 'arraybuffer',
     timeout: 20_000,
@@ -75,26 +73,24 @@ async function fetchGenericWebContent(url: string): Promise<string> {
   const contentType = String(response.headers['content-type'] ?? '');
   const buffer = Buffer.from(response.data);
 
-  // Если по ссылке без расширения .pdf всё равно пришел PDF
   if (contentType.includes('application/pdf')) {
     const parsed = await pdfParse(buffer);
-    return parsed.text.slice(0, 7000);
+    return parsed.text.slice(0, maxChars);
   }
 
-  // Обработка как HTML (ваша текущая рабочая логика для VisualCV)
   const raw = buffer.toString('utf-8');
   const text = raw
-    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '') // удаляем скрипты
-    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')   // удаляем стили
-    .replace(/<[^>]+>/g, ' ')                         // удаляем теги
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
-    .replace(/\s+/g, ' ')                             // схлопываем пробелы
+    .replace(/\s+/g, ' ')
     .trim();
 
-  return text.slice(0, 7000);
+  return text.slice(0, maxChars);
 }
 
 // ── Утилиты ───────────────────────────────────────────────────────────────
