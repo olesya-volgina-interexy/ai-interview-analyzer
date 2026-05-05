@@ -81,8 +81,6 @@ export async function aggregateClientPatterns(clientName: string): Promise<{
   successPatterns: string[];
   failurePatterns: string[];
   redFlags: string[];
-  technicalFocus: string[];
-  softSkillsFocus: string[];
   managerStyles: ClientInsights['managerStyles'];
   basedOnInterviews: number;
 }> {
@@ -94,8 +92,6 @@ export async function aggregateClientPatterns(clientName: string): Promise<{
   const allStrengths: string[] = [];
   const allWeaknesses: string[] = [];
   const allBreakers: string[] = [];
-  const techFocus: string[] = [];
-  const softFocus: string[] = [];
   const managerMap = new Map<string, { count: number; scores: number[] }>();
 
   for (const i of interviews) {
@@ -105,17 +101,6 @@ export async function aggregateClientPatterns(clientName: string): Promise<{
     if (Array.isArray(a.strengths))        allStrengths.push(...a.strengths.filter((s: unknown): s is string => typeof s === 'string'));
     if (Array.isArray(a.weaknesses))       allWeaknesses.push(...a.weaknesses.filter((s: unknown): s is string => typeof s === 'string'));
     if (Array.isArray(a.decisionBreakers)) allBreakers.push(...a.decisionBreakers.filter((s: unknown): s is string => typeof s === 'string'));
-
-    if (i.stage === 'technical' && a.technicalSkills && typeof a.technicalSkills === 'object') {
-      for (const v of Object.values(a.technicalSkills)) {
-        if (typeof v === 'string' && v.trim().length > 0) techFocus.push(v.trim());
-      }
-    }
-    if (i.stage === 'manager_call' && a.softSkills && typeof a.softSkills === 'object') {
-      for (const v of Object.values(a.softSkills)) {
-        if (typeof v === 'string' && v.trim().length > 0) softFocus.push(v.trim());
-      }
-    }
 
     if (i.managerName) {
       let m = managerMap.get(i.managerName);
@@ -144,8 +129,6 @@ export async function aggregateClientPatterns(clientName: string): Promise<{
     successPatterns: successCluster.map(c => c.text),
     failurePatterns: failureCluster.map(c => c.text),
     redFlags:        redFlagsCluster.map(c => c.text),
-    technicalFocus:  Array.from(new Set(techFocus)).slice(0, 10),
-    softSkillsFocus: Array.from(new Set(softFocus)).slice(0, 10),
     managerStyles,
     basedOnInterviews: interviews.length,
   };
@@ -168,8 +151,6 @@ export async function buildClientProfile(clientName: string): Promise<ClientInsi
     successPatterns: patterns.successPatterns,
     failurePatterns: patterns.failurePatterns,
     redFlags: patterns.redFlags,
-    technicalFocus: patterns.technicalFocus,
-    softSkillsFocus: patterns.softSkillsFocus,
     managerStyles: patterns.managerStyles,
     basedOnInterviews: patterns.basedOnInterviews,
     generatedAt: new Date().toISOString(),

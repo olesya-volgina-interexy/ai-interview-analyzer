@@ -129,8 +129,6 @@ export const ClientInsightsSchema = z.object({
   successPatterns: z.array(z.string()),
   failurePatterns: z.array(z.string()),
   redFlags: z.array(z.string()),
-  technicalFocus: z.array(z.string()),
-  softSkillsFocus: z.array(z.string()),
   managerStyles: z.array(z.object({
     managerName: z.string(),
     interviewCount: z.number().int().min(0),
