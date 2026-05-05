@@ -24,19 +24,26 @@ export async function saveEmbedding(
 
 export async function findSimilarInterviews(
   vector: number[],
-  filters: { role: string; level: string; stage: string; clientName?: string },
+  filters: { role: string; level: string; stage?: string; clientName?: string },
   limit = 3
 ): Promise<string[]> {
 
-  // Сначала ищем по клиенту + роли + уровню
+  const baseMust: Array<{ key: string; match: { value: string } }> = [
+    { key: 'role', match: { value: filters.role } },
+    { key: 'level', match: { value: filters.level } },
+  ];
+  if (filters.stage) {
+    baseMust.push({ key: 'stage', match: { value: filters.stage } });
+  }
+
+  // Сначала ищем по клиенту + роли + уровню (+ stage, если задан)
   if (filters.clientName) {
     const withClient = await qdrant.search(COLLECTION, {
       vector,
       limit,
       filter: {
         must: [
-          { key: 'role', match: { value: filters.role } },
-          { key: 'level', match: { value: filters.level } },
+          ...baseMust,
           { key: 'clientName', match: { value: filters.clientName } },
         ],
       },
@@ -53,10 +60,7 @@ export async function findSimilarInterviews(
     vector,
     limit,
     filter: {
-      must: [
-        { key: 'role', match: { value: filters.role } },
-        { key: 'level', match: { value: filters.level } },
-      ],
+      must: baseMust,
     },
     with_payload: false,
   });
