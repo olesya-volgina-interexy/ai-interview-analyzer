@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from '@tanstack/react-router';
-import { LayoutDashboard, FileText, Users, Plus, Menu, X, CalendarIcon } from 'lucide-react';
+import { LayoutDashboard, FileText, Users, Plus, Menu, X, CalendarIcon, Building2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -42,6 +42,7 @@ export function TopNav({ onNewAnalysis }: TopNavProps) {
           <NavItem to="/" icon={<LayoutDashboard size={18} />} label="Dashboard" />
           <NavItem to="/interviews" icon={<FileText size={18} />} label="Interviews" />
           <NavItem to="/candidates" icon={<Users size={18} />} label="Candidates" />
+          <NavItem to="/clients" icon={<Building2 size={18} />} label="Clients" />
           <div className="w-px h-7 bg-slate-200 mx-1.5" />
           <button
             onClick={onNewAnalysis}
@@ -124,6 +125,12 @@ export function TopNav({ onNewAnalysis }: TopNavProps) {
             to="/interviews"
             icon={<FileText size={16} />}
             label="Interviews"
+            onClick={() => setMobileOpen(false)}
+          />
+          <MobileNavItem
+            to="/clients"
+            icon={<Building2 size={16} />}
+            label="Clients"
             onClick={() => setMobileOpen(false)}
           />
           <MobileNavItem

@@ -6,6 +6,8 @@ const DashboardPage        = lazy(() => import('./pages/DashboardPage').then(m =
 const InterviewsPage       = lazy(() => import('./pages/InterviewsPage').then(m => ({ default: m.InterviewsPage })));
 const CandidatesPage       = lazy(() => import('./pages/CandidatesPage').then(m => ({ default: m.CandidatesPage })));
 const CandidateDetailPage  = lazy(() => import('./pages/CandidateDetailPage').then(m => ({ default: m.CandidateDetailPage })));
+const ClientsPage = lazy(() => import('./pages/ClientsPage').then(m => ({ default: m.ClientsPage })));
+const ClientDetailPage = lazy(() => import('./pages/ClientDetailPage').then(m => ({ default: m.ClientDetailPage })));
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -41,11 +43,25 @@ const candidateDetailRoute = createRoute({
   component: CandidateDetailPage,
 });
 
+const clientsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/clients',
+  component: ClientsPage,
+});
+
+const clientDetailRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/clients/$name',
+  component: ClientDetailPage,
+});
+
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
   interviewsRoute,
   candidatesRoute,
   candidateDetailRoute,
+  clientsRoute,
+  clientDetailRoute,
 ]);
 
 export const router = createRouter({ routeTree });

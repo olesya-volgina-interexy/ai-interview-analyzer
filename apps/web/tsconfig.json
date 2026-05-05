@@ -6,8 +6,8 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "outDir": "./dist",
-    "baseUrl": ".",
+    "noEmit": true,
+    "strict": true,
     "paths": {
       "@/*": ["./src/*"],
       "@shared/*": ["../../packages/shared/src/*"]

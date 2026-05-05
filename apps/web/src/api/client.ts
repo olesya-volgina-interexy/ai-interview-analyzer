@@ -248,6 +248,52 @@ export const pipelineCandidatesApi = {
   }) => api.get<PipelineCandidateItem[]>('/pipeline-candidates', { params }),
 };
 
+export interface ClientListItem {
+  name: string;
+  description: string | null;
+  interviewCount: number;
+  hireRate: number;
+  requestCount: number;
+  lastInterviewAt: string | null;
+}
+
+export interface ClientListResponse {
+  total: number;
+  page: number;
+  limit: number;
+  items: ClientListItem[];
+}
+
+export interface ClientDetail {
+  id: string;
+  name: string;
+  description: string | null;
+  insights: unknown | null;
+  createdAt: string;
+  updatedAt: string;
+  interviewCount: number;
+  hireRate: number;
+  requestCount: number;
+  lastInterviewAt: string | null;
+  recentInterviews: Array<{
+    id: string;
+    candidateName: string | null;
+    stage: string;
+    decision: string | null;
+    score: number | null;
+    createdAt: string;
+  }>;
+  managers: string[];
+}
+
+export const clientsApi = {
+  getClients: (page = 1, limit = 20) =>
+    api.get<ClientListResponse>('/clients', { params: { page, limit } }),
+
+  getClient: (name: string) =>
+    api.get<ClientDetail>(`/clients/${encodeURIComponent(name)}`),
+};
+
 export const statsApi = {
   getOverview: (params?: { from?: string; to?: string; refresh?: string }) =>
     api.get<StatsOverview>('/stats/overview', { params }),
