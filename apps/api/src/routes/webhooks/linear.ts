@@ -221,6 +221,11 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
               where: { linearIssueId: issueId },
               data: { clientName: newClientName },
             }).catch(err => fastify.log.warn({ err }, 'Failed to update PipelineCandidate clientName')),
+            prisma.client.upsert({
+              where: { name: newClientName },
+              create: { name: newClientName },
+              update: {},
+            }).catch(err => fastify.log.warn({ err }, 'Failed to upsert Client')),
           ]);
 
           fastify.log.info(
