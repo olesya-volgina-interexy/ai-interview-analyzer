@@ -138,6 +138,20 @@ export const ClientInsightsSchema = z.object({
   generatedAt: z.string(),
 });
 
+export const PreparationDocStatusSchema = z.enum(['pending', 'completed', 'failed']);
+
+export const PreparationDocSchema = z.object({
+  id: z.string().uuid(),
+  candidateName: z.string(),
+  clientName: z.string(),
+  brokerRequest: z.string().nullable(),
+  markdown: z.string(),
+  sourceInterviewIds: z.array(z.string()),
+  status: PreparationDocStatusSchema,
+  error: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
 
 export const CandidateAnalysisSchema = z.discriminatedUnion('stage', [
   ManagerCallAnalysisSchema,
@@ -170,6 +184,13 @@ export const ChatRequestSchema = z.object({
   history: z.array(ChatMessageSchema),
 });
 
+export const GeneratePreparationDocRequestSchema = z.object({
+  candidateName: z.string().min(1),
+  clientName: z.string().min(1),
+  candidateId: z.string().uuid().optional(),
+  cvText: z.string().optional(),
+});
+
 export type FinalResultAnalysis = z.infer<typeof FinalResultAnalysisSchema>;
 export type InterviewStage = z.infer<typeof InterviewStageSchema>;
 export type InterviewMeta = z.infer<typeof InterviewMetaSchema>;
@@ -183,3 +204,6 @@ export type BrokerRequestMatch = z.infer<typeof BrokerRequestMatchSchema>;
 export type AnalyzeRequest = z.infer<typeof AnalyzeRequestSchema>;
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;
+export type PreparationDocStatus = z.infer<typeof PreparationDocStatusSchema>;
+export type PreparationDoc = z.infer<typeof PreparationDocSchema>;
+export type GeneratePreparationDocRequest = z.infer<typeof GeneratePreparationDocRequestSchema>;
