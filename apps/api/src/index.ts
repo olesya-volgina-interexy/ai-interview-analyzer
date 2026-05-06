@@ -9,6 +9,7 @@ import { candidateRoutes } from './routes/candidates';
 import { clientRoutes } from './routes/clients';
 import { uploadRoutes } from './routes/upload';
 import './workers/analyze.worker';
+import './workers/preparation.worker';
 import { linearWebhookRoutes } from './routes/webhooks/linear';
 import { verifyLinearAuth } from './services/linear.service';
 
