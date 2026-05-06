@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import type { AnalyzeRequest, CandidateAnalysis, ClientInsights } from '@shared/schemas';
+import type { AnalyzeRequest, CandidateAnalysis, ClientInsights, PreparationDoc, GeneratePreparationDocRequest } from '@shared/schemas';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL
@@ -313,4 +313,37 @@ export const uploadApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+};
+
+// ── Preparation Doc ────────────────────────────────────────────────────────
+
+export type PreparationDocListItem = Omit<PreparationDoc, 'markdown'>;
+
+export interface PreparationDocStatus {
+  id: string;
+  status: 'pending' | 'completed' | 'failed';
+  progress: number;
+  error: string | null;
+  doc?: PreparationDoc;
+}
+
+export interface PreparationListResponse {
+  total: number;
+  page: number;
+  limit: number;
+  items: PreparationDocListItem[];
+}
+
+export const preparationApi = {
+  generate: (data: GeneratePreparationDocRequest) =>
+    api.post<{ id: string; jobId: string }>('/preparation', data),
+
+  getStatus: (id: string) =>
+    api.get<PreparationDocStatus>(`/preparation/${encodeURIComponent(id)}/status`),
+
+  getDoc: (id: string) =>
+    api.get<PreparationDoc>(`/preparation/${encodeURIComponent(id)}`),
+
+  list: (params?: { page?: number; limit?: number; clientName?: string; candidateName?: string }) =>
+    api.get<PreparationListResponse>('/preparation', { params }),
 };
