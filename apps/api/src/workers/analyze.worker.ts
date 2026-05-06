@@ -22,6 +22,8 @@ import type { AnalyzeRequest } from '@shared/schemas';
 import { runStage, describeError } from '../utils/errorLogger';
 
 import { redis } from '../db/redis';
+import { prisma } from '../db/prisma';
+import { fastify } from 'fastify';
 export { redis };
 
 export const analyzeQueue = new Queue('analyze', { connection: redis });
@@ -86,6 +88,17 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
         () => createInterview({ transcript: '', meta, analysis, parentCommentId }),
         { op: 'createInterview.final', linearIssueId: meta.linearIssueId }
       );
+
+      // Гарантируем, что у клиента есть строка в Client (страница /clients
+      // читает именно её, в отличие от Interview.clientName).
+      const finalClientName = meta.clientName?.trim();
+      if (finalClientName) {
+        await prisma.client.upsert({
+          where: { name: finalClientName },
+          create: { name: finalClientName },
+          update: {},
+        }).catch(err => console.warn('[stage:db] Failed to upsert Client', { ...describeError(err), clientName: finalClientName }));
+      }
 
       if (isDuplicate) {
         console.log(
@@ -251,6 +264,17 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
       { op: 'createInterview', stage: (meta as any).stage, linearIssueId: meta.linearIssueId }
     );
 
+    // Гарантируем, что у клиента есть строка в Client (страница /clients
+    // читает именно её, в отличие от Interview.clientName).
+    const stdClientName = meta.clientName?.trim();
+    if (stdClientName) {
+      await prisma.client.upsert({
+        where: { name: stdClientName },
+        create: { name: stdClientName },
+        update: {},
+      }).catch(err => console.warn('[stage:db] Failed to upsert Client', { ...describeError(err), clientName: stdClientName }));
+    }
+
     if (isDuplicate) {
       console.log(
         `Interview for issue ${meta.linearIssueId} / ${parentCommentId} already saved by a concurrent worker — skipping embedding + Linear post.`
@@ -293,9 +317,10 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
             { op: 'postTechnicalAnalysis', linearIssueId: meta.linearIssueId, parentCommentId }
           );
         }
-      } catch {
-        // уже залогировали в runStage, не ломаем основной флоу
+      } catch (err) {
+        console.error('[analyze] Linear post failed (non-fatal)', describeError(err));
       }
+
     }
 
     await job.updateProgress(100);

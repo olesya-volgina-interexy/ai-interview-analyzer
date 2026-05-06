@@ -1,6 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db/prisma';
+import { buildClientProfile } from '../services/clientProfile.service';
+import type { ClientInsights } from '@shared/schemas';
+
+const PROFILE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 const ListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -163,6 +167,48 @@ export async function clientRoutes(fastify: FastifyInstance) {
         })),
         managers: managerRows.map(r => r.managerName).filter((m): m is string => !!m),
       };
+    },
+  );
+
+  fastify.get<{ Params: { name: string } }>(
+    '/clients/:name/profile',
+    async (request, reply) => {
+      const name = decodeURIComponent(request.params.name);
+
+      const client = await prisma.client.findUnique({ where: { name } });
+      if (!client) {
+        return reply.status(404).send({ error: 'Client not found' });
+      }
+
+      const cached = client.insights as ClientInsights | null;
+      const cacheAgeMs = Date.now() - client.updatedAt.getTime();
+      const isFresh = cacheAgeMs < PROFILE_CACHE_TTL_MS;
+      const cachedCount = cached?.basedOnInterviews;
+
+      if (cached && isFresh && typeof cachedCount === 'number') {
+        const currentCount = await prisma.interview.count({
+          where: { clientName: name },
+        });
+        if (currentCount <= cachedCount) {
+          return cached;
+        }
+      }
+
+      return buildClientProfile(name);
+    },
+  );
+
+  fastify.post<{ Params: { name: string } }>(
+    '/clients/:name/profile/rebuild',
+    async (request, reply) => {
+      const name = decodeURIComponent(request.params.name);
+
+      const client = await prisma.client.findUnique({ where: { name } });
+      if (!client) {
+        return reply.status(404).send({ error: 'Client not found' });
+      }
+
+      return buildClientProfile(name);
     },
   );
 }

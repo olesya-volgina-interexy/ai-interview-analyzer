@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const InterviewStageSchema = z.enum(['manager_call', 'technical']);
 
 export const InterviewMetaSchema = z.object({
-  stage: InterviewStageSchema,                   // ← NEW: этап
+  stage: InterviewStageSchema,
   role: z.string().min(1).max(100),
   level: z.enum(['Junior', 'Middle', 'Senior', 'Architect']),
   // decision только для technical этапа
@@ -118,6 +118,26 @@ export const FinalResultAnalysisSchema = z.object({
   decision: z.enum(['hired', 'rejected']),
 });
 
+export const ClientInsightsSchema = z.object({
+  summary: z.string(),
+  topQuestions: z.array(z.object({
+    question: z.string(),
+    topic: z.string(),
+    frequency: z.number().int().min(0),
+    avgHandled: z.enum(['well', 'partial', 'poor']),
+  })),
+  successPatterns: z.array(z.string()),
+  failurePatterns: z.array(z.string()),
+  redFlags: z.array(z.string()),
+  managerStyles: z.array(z.object({
+    managerName: z.string(),
+    interviewCount: z.number().int().min(0),
+    avgScore: z.number().nullable(),
+  })),
+  basedOnInterviews: z.number().int().min(0),
+  generatedAt: z.string(),
+});
+
 
 export const CandidateAnalysisSchema = z.discriminatedUnion('stage', [
   ManagerCallAnalysisSchema,
@@ -157,6 +177,7 @@ export type InterviewQuestions = z.infer<typeof InterviewQuestionsSchema>;
 export type ManagerCallAnalysis = z.infer<typeof ManagerCallAnalysisSchema>;
 export type TechnicalAnalysis = z.infer<typeof TechnicalAnalysisSchema>;
 export type CandidateAnalysis = z.infer<typeof CandidateAnalysisSchema>;
+export type ClientInsights = z.infer<typeof ClientInsightsSchema>;
 export type CVMatch = z.infer<typeof CVMatchSchema>;
 export type BrokerRequestMatch = z.infer<typeof BrokerRequestMatchSchema>;
 export type AnalyzeRequest = z.infer<typeof AnalyzeRequestSchema>;

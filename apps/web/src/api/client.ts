@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import type { AnalyzeRequest, CandidateAnalysis } from '@shared/schemas';
+import type { AnalyzeRequest, CandidateAnalysis, ClientInsights } from '@shared/schemas';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL
@@ -292,6 +292,12 @@ export const clientsApi = {
 
   getClient: (name: string) =>
     api.get<ClientDetail>(`/clients/${encodeURIComponent(name)}`),
+
+  getClientProfile: (name: string) =>
+    api.get<ClientInsights>(`/clients/${encodeURIComponent(name)}/profile`),
+
+  rebuildClientProfile: (name: string) =>
+    api.post<ClientInsights>(`/clients/${encodeURIComponent(name)}/profile/rebuild`),
 };
 
 export const statsApi = {

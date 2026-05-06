@@ -6,8 +6,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { CandidateModal } from '@/components/modals/CandidateModal';
-import { ArrowLeft, Building2, Users, Target, Inbox, FileSignature, MessageSquare } from 'lucide-react';
+import { ClientInsightsBlock } from '@/components/clients/ClientInsightsBlock';
+import { ArrowLeft, Building2, Users, Target, Inbox, FileSignature, MessageSquare, Sparkles, FileText } from 'lucide-react';
 
 function formatDate(iso: string | null) {
   if (!iso) return '—';
@@ -168,53 +170,74 @@ export function ClientDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Recent interviews */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Recent Interviews</CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {data.recentInterviews.length === 0 ? (
-            <div className="px-4 py-8 text-center">
-              <Building2 size={22} className="mx-auto text-slate-300 mb-2" />
-              <p className="text-sm text-slate-500">No interviews yet for this client.</p>
-            </div>
-          ) : (
-            <table className="w-full text-sm table-fixed">
-              <thead className="bg-[#5067F4]/5 border-b border-[#5067F4]/10">
-                <tr>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[28%]">Candidate</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[20%]">Stage</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[18%]">Decision</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[14%]">Score</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[20%]">Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {data.recentInterviews.map(i => (
-                  <tr
-                    key={i.id}
-                    onClick={() => setSelectedId(i.id)}
-                    className="hover:bg-slate-50 cursor-pointer transition-colors"
-                  >
-                    <td className="px-3 py-2 text-slate-700 truncate">{i.candidateName ?? '—'}</td>
-                    <td className="px-3 py-2 text-slate-600">{STAGE_LABEL[i.stage] ?? i.stage}</td>
-                    <td className="px-3 py-2">
-                      {i.decision ? (
-                        <Badge className={`${RESULT_STYLE[i.decision] ?? 'bg-slate-100 text-slate-600'} text-xs`}>
-                          {i.decision.replace('_', ' ')}
-                        </Badge>
-                      ) : '—'}
-                    </td>
-                    <td className="px-3 py-2 text-slate-600">{i.score !== null ? `${i.score}/100` : '—'}</td>
-                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{formatDate(i.createdAt)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </CardContent>
-      </Card>
+      {/* Tabs: Profile / Recent Interviews */}
+      <Tabs defaultValue={0}>
+        <TabsList variant="line" className="w-full justify-start">
+          <TabsTrigger value={0}>
+            <Sparkles size={14} />
+            Interview Profile
+          </TabsTrigger>
+          <TabsTrigger value={1}>
+            <FileText size={14} />
+            Recent Interviews
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value={0}>
+          <div className="pt-2">
+            <ClientInsightsBlock clientName={data.name} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value={1}>
+          <Card className="mt-2">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Recent Interviews</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {data.recentInterviews.length === 0 ? (
+                <div className="px-4 py-8 text-center">
+                  <Building2 size={22} className="mx-auto text-slate-300 mb-2" />
+                  <p className="text-sm text-slate-500">No interviews yet for this client.</p>
+                </div>
+              ) : (
+                <table className="w-full text-sm table-fixed">
+                  <thead className="bg-[#5067F4]/5 border-b border-[#5067F4]/10">
+                    <tr>
+                      <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[28%]">Candidate</th>
+                      <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[20%]">Stage</th>
+                      <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[18%]">Decision</th>
+                      <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[14%]">Score</th>
+                      <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[20%]">Date</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {data.recentInterviews.map(i => (
+                      <tr
+                        key={i.id}
+                        onClick={() => setSelectedId(i.id)}
+                        className="hover:bg-slate-50 cursor-pointer transition-colors"
+                      >
+                        <td className="px-3 py-2 text-slate-700 truncate">{i.candidateName ?? '—'}</td>
+                        <td className="px-3 py-2 text-slate-600">{STAGE_LABEL[i.stage] ?? i.stage}</td>
+                        <td className="px-3 py-2">
+                          {i.decision ? (
+                            <Badge className={`${RESULT_STYLE[i.decision] ?? 'bg-slate-100 text-slate-600'} text-xs`}>
+                              {i.decision.replace('_', ' ')}
+                            </Badge>
+                          ) : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-slate-600">{i.score !== null ? `${i.score}/100` : '—'}</td>
+                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{formatDate(i.createdAt)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       <CandidateModal
         interviewId={selectedId}

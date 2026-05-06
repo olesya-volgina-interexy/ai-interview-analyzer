@@ -445,6 +445,7 @@ async function triggerTechCall(
           level,
           clientName: parsed.clientName ?? undefined,
           candidateName: candidateName ?? undefined,
+          managerName: candidate.managerName ?? undefined,
           linearIssueId: issueId,
           cvUrl: candidate.cvUrl ?? undefined,
         },
