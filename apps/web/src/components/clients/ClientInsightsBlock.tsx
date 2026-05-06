@@ -41,6 +41,9 @@ export function ClientInsightsBlock({ clientName }: ClientInsightsBlockProps) {
     onSuccess: (fresh: ClientInsights) => {
       queryClient.setQueryData(['client-profile', clientName], fresh);
     },
+    onError: () => {
+      queryClient.invalidateQueries({ queryKey: ['client-profile', clientName] });
+    },
   });
 
   if (isLoading) {
@@ -150,7 +153,7 @@ export function ClientInsightsBlock({ clientName }: ClientInsightsBlockProps) {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {visibleQuestions.map((q, idx) => {
-                  const h = HANDLED_STYLE[q.avgHandled] ?? HANDLED_STYLE.partial;
+                  const h = q.avgHandled ? HANDLED_STYLE[q.avgHandled] : null;
                   return (
                     <tr key={`${q.topic}-${idx}`} className="hover:bg-slate-50 transition-colors">
                       <td className="px-3 py-2 text-slate-700 truncate" title={q.question}>{q.question}</td>
@@ -161,12 +164,16 @@ export function ClientInsightsBlock({ clientName }: ClientInsightsBlockProps) {
                       </td>
                       <td className="px-3 py-2 text-slate-600">{q.frequency}</td>
                       <td className="px-3 py-2">
-                        <span
-                          className="text-xs font-medium px-2 py-0.5 rounded-full"
-                          style={{ background: h.bg, color: h.color }}
-                        >
-                          {h.label}
-                        </span>
+                        {h ? (
+                          <span
+                            className="text-xs font-medium px-2 py-0.5 rounded-full"
+                            style={{ background: h.bg, color: h.color }}
+                          >
+                            {h.label}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400">—</span>
+                        )}
                       </td>
                     </tr>
                   );

@@ -69,7 +69,7 @@ export async function aggregateClientQuestions(clientName: string): Promise<Clie
       question: topQuestion,
       topic,
       frequency: questions.length,
-      avgHandled: avg !== null ? avgScoreToHandled(avg) : 'partial',
+      avgHandled: avg !== null ? avgScoreToHandled(avg) : null,
     });
   }
 
