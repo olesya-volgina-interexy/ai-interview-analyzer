@@ -194,7 +194,12 @@ export async function clientRoutes(fastify: FastifyInstance) {
         }
       }
 
-      return buildClientProfile(name);
+      try {
+        return await buildClientProfile(name);
+      } catch (err) {
+        fastify.log.error(err, 'buildClientProfile failed');
+        return reply.status(500).send({ error: 'Failed to build client profile' });
+      }
     },
   );
 
@@ -208,7 +213,12 @@ export async function clientRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Client not found' });
       }
 
-      return buildClientProfile(name);
+      try {
+        return await buildClientProfile(name);
+      } catch (err) {
+        fastify.log.error(err, 'buildClientProfile failed');
+        return reply.status(500).send({ error: 'Failed to build client profile' });
+      }
     },
   );
 }

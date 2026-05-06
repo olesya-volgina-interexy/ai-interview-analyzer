@@ -124,7 +124,7 @@ export const ClientInsightsSchema = z.object({
     question: z.string(),
     topic: z.string(),
     frequency: z.number().int().min(0),
-    avgHandled: z.enum(['well', 'partial', 'poor']),
+    avgHandled: z.enum(['well', 'partial', 'poor']).nullable(),
   })),
   successPatterns: z.array(z.string()),
   failurePatterns: z.array(z.string()),
