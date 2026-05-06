@@ -89,9 +89,14 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
         { op: 'createInterview.final', linearIssueId: meta.linearIssueId }
       );
 
+      // Нормализуем clientName один раз — до любых записей
+      if (meta.clientName) {
+        meta.clientName = meta.clientName.trim().toLowerCase();
+      }
+
       // Гарантируем, что у клиента есть строка в Client (страница /clients
       // читает именно её, в отличие от Interview.clientName).
-      const finalClientName = meta.clientName?.trim();
+      const finalClientName = meta.clientName;
       if (finalClientName) {
         await prisma.client.upsert({
           where: { name: finalClientName },
@@ -266,7 +271,7 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
 
     // Гарантируем, что у клиента есть строка в Client (страница /clients
     // читает именно её, в отличие от Interview.clientName).
-    const stdClientName = meta.clientName?.trim();
+    const stdClientName = meta.clientName;
     if (stdClientName) {
       await prisma.client.upsert({
         where: { name: stdClientName },
