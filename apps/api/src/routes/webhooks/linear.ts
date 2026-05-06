@@ -205,7 +205,8 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
       if (type === 'Issue' && action === 'update' && updatedFrom?.title !== undefined) {
         const issueId = data.id;
         const newTitle = data.title ?? '';
-        const { clientName: newClientName } = parseIssueTitle(newTitle);
+        const { clientName: rawClientName } = parseIssueTitle(newTitle);
+        const newClientName = rawClientName?.trim().toLowerCase() || undefined;
 
         if (newClientName) {
           const [requestUpdate, interviewUpdate] = await Promise.all([

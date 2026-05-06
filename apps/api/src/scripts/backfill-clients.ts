@@ -26,7 +26,7 @@ async function main() {
   ]);
 
   const allNames = [...interviewRows, ...requestRows, ...candidateRows]
-    .map(r => r.clientName?.trim())
+    .map(r => r.clientName?.trim().toLowerCase())
     .filter((n): n is string => !!n && n.length > 0);
 
   const unique = Array.from(new Set(allNames));
