@@ -13,6 +13,7 @@ import './workers/analyze.worker';
 import './workers/preparation.worker';
 import { linearWebhookRoutes } from './routes/webhooks/linear';
 import { verifyLinearAuth } from './services/linear.service';
+import { registerAuth } from './middleware/auth';
 
 const app = Fastify({ logger: true });
 
@@ -27,6 +28,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.CORS_ORIGIN) {
 }
 
 app.register(cors, { origin: corsOrigins });
+app.register(registerAuth);
 app.register(linearWebhookRoutes);
 
 app.register(analyzeRoutes, { prefix: '/api' });
@@ -42,7 +44,7 @@ app.get('/health', async () => ({ status: 'ok', version: '1.0.0' }));
 const REQUIRED_ENV = [
   'DATABASE_URL', 'REDIS_URL', 'QDRANT_URL',
   'LLM_API_KEY', 'LLM_BASE_URL', 'LINEAR_API_KEY',
-  'LINEAR_WEBHOOK_SECRET',
+  'LINEAR_WEBHOOK_SECRET', 'JWT_SECRET',
 ];
 
 const start = async () => {
