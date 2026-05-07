@@ -87,3 +87,16 @@ model PipelineCandidate {
   @@index([linearIssueId])
   @@index([cvSubmittedAt])
 }
+
+model PreparationDoc {
+  id                  String   @id @default(uuid())
+  candidateName       String
+  clientName          String
+  brokerRequest       String?  @db.Text
+  markdown            String   @db.Text
+  sourceInterviewIds  String[]
+  status              String   @default("pending")  // 'pending' | 'completed' | 'failed'
+  error               String?  @db.Text
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}

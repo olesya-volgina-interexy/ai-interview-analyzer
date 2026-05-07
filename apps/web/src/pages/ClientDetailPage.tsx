@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { clientsApi } from '@/api/client';
+import { GeneratePreparationDocModal } from '@/components/modals/GeneratePreparationDocModal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,7 @@ export function ClientDetailPage() {
   const { name } = useParams({ from: '/clients/$name' });
   const navigate = useNavigate();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [prepModalOpen, setPrepModalOpen] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['client', name],
@@ -116,7 +118,7 @@ export function ClientDetailPage() {
           </p>
         </div>
         <div className="flex gap-2 flex-shrink-0">
-          <Button variant="outline" size="sm" disabled title="Coming soon" className="gap-2">
+          <Button variant="outline" size="sm" onClick={() => setPrepModalOpen(true)} className="gap-2">
             <FileSignature size={14} />
             Generate prep document
           </Button>
@@ -238,6 +240,12 @@ export function ClientDetailPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <GeneratePreparationDocModal
+        open={prepModalOpen}
+        onClose={() => setPrepModalOpen(false)}
+        defaultClientName={data.name}
+      />
 
       <CandidateModal
         interviewId={selectedId}
