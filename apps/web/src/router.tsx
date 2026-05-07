@@ -8,6 +8,7 @@ const CandidatesPage       = lazy(() => import('./pages/CandidatesPage').then(m 
 const CandidateDetailPage  = lazy(() => import('./pages/CandidateDetailPage').then(m => ({ default: m.CandidateDetailPage })));
 const ClientsPage = lazy(() => import('./pages/ClientsPage').then(m => ({ default: m.ClientsPage })));
 const ClientDetailPage = lazy(() => import('./pages/ClientDetailPage').then(m => ({ default: m.ClientDetailPage })));
+const PreparationDocPage = lazy(() => import('./pages/PreparationDocPage').then(m => ({ default: m.PreparationDocPage })));
 
 const rootRoute = createRootRoute({
   component: () => (
@@ -54,6 +55,12 @@ const clientDetailRoute = createRoute({
   path: '/clients/$name',
   component: ClientDetailPage,
 });
+  
+const preparationDocRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/preparation/$id',
+  component: PreparationDocPage,
+});
 
 const routeTree = rootRoute.addChildren([
   dashboardRoute,
@@ -62,6 +69,7 @@ const routeTree = rootRoute.addChildren([
   candidateDetailRoute,
   clientsRoute,
   clientDetailRoute,
+  preparationDocRoute,
 ]);
 
 export const router = createRouter({ routeTree });
