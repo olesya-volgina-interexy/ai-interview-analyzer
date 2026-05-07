@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import fp from 'fastify-plugin';
 import fastifyJwt from '@fastify/jwt';
 
 // Required env: JWT_SECRET — secret used to sign and verify JWT tokens.
@@ -20,7 +21,7 @@ declare module '@fastify/jwt' {
   }
 }
 
-export async function registerAuth(fastify: FastifyInstance) {
+export const registerAuth = fp(async function (fastify: FastifyInstance) {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
     throw new Error('JWT_SECRET environment variable is required');
@@ -35,4 +36,4 @@ export async function registerAuth(fastify: FastifyInstance) {
       return reply.status(401).send({ error: 'Unauthorized' });
     }
   });
-}
+});
