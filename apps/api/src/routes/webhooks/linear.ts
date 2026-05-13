@@ -199,6 +199,9 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
           role: data.title,
           status: initialStatus,
         }).catch(err => fastify.log.warn({ err }, 'Failed to create IncomingRequest'));
+
+        const keys = await redis.keys('stats:overview:*').catch(() => [] as string[]);
+        if (keys.length > 0) await redis.del(...keys).catch(() => {});
       }
 
       // ── Триггер на смену заголовка Issue (синхронизация clientName) ─────
