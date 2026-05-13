@@ -120,7 +120,7 @@ export function DashboardPage() {
     setIsRefreshing(false);
   }, [fromIso, toIso, queryClient]);
 
-  const isEmpty = !statsLoading && stats?.total === 0;
+  const isEmpty = !statsLoading && !overviewLoading && stats?.total === 0 && (overview?.requests.total ?? 0) === 0;
 
   const { data: recent, isLoading } = useQuery({
     queryKey: ['interviews', 'recent'],
