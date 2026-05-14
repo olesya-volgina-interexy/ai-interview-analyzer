@@ -15,6 +15,7 @@ import './workers/preparation.worker';
 import { linearWebhookRoutes } from './routes/webhooks/linear';
 import { verifyLinearAuth } from './services/linear.service';
 import { registerAuth } from './middleware/auth';
+import { registerRateLimit } from './middleware/rateLimit';
 
 const app = Fastify({ logger: true });
 
@@ -30,6 +31,7 @@ if (process.env.NODE_ENV === 'production' && !process.env.CORS_ORIGIN) {
 
 app.register(cors, { origin: corsOrigins });
 app.register(registerAuth);
+app.register(registerRateLimit);
 app.register(linearWebhookRoutes);
 
 app.register(analyzeRoutes, { prefix: '/api' });
