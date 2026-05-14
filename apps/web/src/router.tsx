@@ -1,4 +1,4 @@
-import { createRouter, createRoute, createRootRoute, Outlet } from '@tanstack/react-router';
+import { createRouter, createRoute, createRootRoute, Outlet, redirect } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
 import { Layout } from './components/layout/Layout';
 
@@ -12,6 +12,12 @@ const PreparationDocPage = lazy(() => import('./pages/PreparationDocPage').then(
 const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
 
 const rootRoute = createRootRoute({
+  beforeLoad: ({ location }) => {
+    const token = localStorage.getItem('accessToken');
+    if (!token && location.pathname !== '/login') {
+      throw redirect({ to: '/login' });
+    }
+  },
   component: () => (
     <Layout>
       <Suspense fallback={null}>

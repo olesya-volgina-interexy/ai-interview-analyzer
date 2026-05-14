@@ -31,9 +31,16 @@ if (process.env.NODE_ENV === 'production' && !process.env.CORS_ORIGIN) {
 
 app.register(cors, { origin: corsOrigins });
 app.register(registerAuth);
+
+app.addHook('onRequest', async (request, reply) => {
+  const open = ['/api/auth/login', '/api/auth/refresh', '/health'];
+  if (open.includes(request.url)) return;
+  if (request.url.startsWith('/webhooks/linear')) return;
+  return app.authenticate(request, reply);
+});
+
 app.register(registerRateLimit);
 app.register(linearWebhookRoutes);
-
 app.register(analyzeRoutes, { prefix: '/api' });
 app.register(interviewRoutes, { prefix: '/api' });
 app.register(statsRoutes, { prefix: '/api' });
