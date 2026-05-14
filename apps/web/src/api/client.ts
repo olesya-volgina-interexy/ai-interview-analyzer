@@ -8,13 +8,16 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// ── Глобальный перехватчик ошибок ──────────────────────────────────────────
+api.interceptors.request.use(config => {
+  const token = localStorage.getItem('accessToken');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
 api.interceptors.response.use(
   res => res,
   (error: AxiosError) => {
     if (!error.response) {
-      // Нет соединения с сервером
       throw new ApiError('Unable to connect to the server. Please check that the API is running.', 'NETWORK_ERROR');
     }
 
@@ -24,6 +27,11 @@ api.interceptors.response.use(
     switch (status) {
       case 400:
         throw new ApiError(data?.message ?? 'Invalid request data. Please check the form.', 'VALIDATION_ERROR');
+      case 401:
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        window.location.href = '/login';
+        throw new ApiError('Session expired. Please log in again.', 'UNAUTHORIZED');
       case 404:
         throw new ApiError('Resource not found.', 'NOT_FOUND');
       case 429:
@@ -36,12 +44,10 @@ api.interceptors.response.use(
   }
 );
 
-// ── ApiError класс ─────────────────────────────────────────────────────────
-
 export class ApiError extends Error {
   constructor(
     message: string,
-    public code: 'NETWORK_ERROR' | 'VALIDATION_ERROR' | 'NOT_FOUND' | 'RATE_LIMIT' | 'SERVER_ERROR' | 'UNKNOWN_ERROR'
+    public code: 'NETWORK_ERROR' | 'VALIDATION_ERROR' | 'NOT_FOUND' | 'RATE_LIMIT' | 'SERVER_ERROR' | 'UNKNOWN_ERROR' | 'UNAUTHORIZED'
   ) {
     super(message);
     this.name = 'ApiError';
@@ -53,8 +59,6 @@ export function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return 'An unexpected error occurred. Please try again.';
 }
-
-// ── Типы ответов ───────────────────────────────────────────────────────────
 
 export interface JobStatus {
   jobId: string;
@@ -95,8 +99,6 @@ export interface InterviewStats {
   byRole: Record<string, number>;
   byStage: Record<string, number>;
 }
-
-// ── API методы ─────────────────────────────────────────────────────────────
 
 export const analyzeApi = {
   start: (data: AnalyzeRequest) =>
@@ -314,8 +316,6 @@ export const uploadApi = {
     });
   },
 };
-
-// ── Preparation Doc ────────────────────────────────────────────────────────
 
 export type PreparationDocListItem = Omit<PreparationDoc, 'markdown'>;
 
