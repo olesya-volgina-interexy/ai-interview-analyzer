@@ -25,53 +25,60 @@ With `coveredRequirements = []` and `missingRequirements = []`, the denominator 
 
 ### Why dev worked but prod didn't
 
-Both analyses were triggered via Linear webhook with **identical input data** — same transcript, CV, and broker request. The pipeline code is the same. The difference must be in the **runtime environment**.
+Confirmed: same LLM model, same data, no errors, no previous analyses (Qdrant empty on both). All environmental differences are ruled out.
 
-**Cause A — Different `LLM_MODEL` on prod vs dev (most likely)**
+**Root cause: LLM non-determinism at `temperature: 0.1`**
 
-The prompt rule `"explicitly tested with a direct question"` is interpreted differently by different models. A stricter or newer model classifies broker requirements as `notAssessedRequirements` unless the interviewer asked about them explicitly by name. A more permissive model credits a candidate mentioning a technology during any answer as implicit testing.
+`llm.service.ts` sets `temperature: 0.1`. This is low but not zero — the model can produce different outputs for the same input between runs. The broker requirement classification is a judgment call: _"did the interview explicitly test this requirement?"_ For borderline cases (candidate mentions a technology while answering a related but differently-phrased question), one run classifies it as `coveredRequirements`, another run classifies it as `notAssessedRequirements`.
 
-> Check: compare `LLM_MODEL` env var on prod vs dev. If different — run the same transcript + broker request against the prod model on dev to reproduce.
+The prompt rule in `analyze.prompt.ts` is extremely strict:
+> "a broker requirement is 'covered' ONLY if an explicit question was asked AND the candidate demonstrated it in their answer"
 
-**Cause B — RAG context inflates the input and pushes transcript out of window**
+This strictness, combined with temperature randomness, means results for the same interview can flip between runs depending on how the model interprets "explicit question". On dev the model happened to count some answers as covering requirements; on prod the same model, same data, didn't.
 
-Prod Qdrant likely has more historical embeddings than dev. `findSimilarInterviews` returns up to 3 similar cases, and `formatSimilarCases()` prepends their reasoning to the user message. If prod similar cases are long, the combined input grows — on a model with a smaller effective context window, the later part of the transcript (where broker-relevant questions may have been asked) gets truncated or underweighted.
+**Secondary contributor: the `notAssessedRequirements` bucket is a dead end in the formula**
 
-> Check: compare lengths of `similarCasesText` in prod vs dev logs. Does prod have more interviews in Qdrant?
-
-**Cause C — `max_tokens: 6000` causes JSON truncation on prod**
-
-If the prod model generates more verbose text (longer `reasoning`, `overallAssessment`, etc.), it may hit `max_tokens: 6000` set in `llm.service.ts`. The truncated JSON either fails validation entirely or gets partially recovered — with `coveredRequirements` defaulting to `[]` and `brokerMatchScore` to 0.
-
-> Check: look for `[stage:llm]` errors or warnings in prod logs around the timestamp of the 0% analysis.
+Even when the candidate clearly demonstrated skills that match the broker list (just not via a direct question about each one), the formula gives `0 / 0 = 0`. There is no fallback signal.
 
 ### Fix plan
 
-**Step 1 — Check env vars first** (no code change):
-- Compare `LLM_MODEL` on prod and dev — if different, test the prod model with the same data on dev first.
+**Step 1 — Set `temperature: 0` in `llm.service.ts`**
 
-**Step 2 — Add proxy score to the prompt and schema** (`analyze.prompt.ts` + `schemas.ts`):
-When `coveredRequirements` and `missingRequirements` are both empty, instruct the LLM to compute a secondary signal — `brokerProxyScore` — based on overlap between `confirmedSkills` (things tested in the interview) and `requiredSkills` (broker list):
+Change `temperature: 0.1` → `temperature: 0` for `analyzeInterview`. This makes classification deterministic — same input always produces the same output. No schema or prompt changes needed.
+
+File: `apps/api/src/services/llm.service.ts`
+
+**Step 2 — Loosen the broker requirement rule in the prompt** (`analyze.prompt.ts`)
+
+The current rule requires "a direct question about this exact requirement by name". Add a nuance: if the candidate answered a question whose topic demonstrably covers a broker requirement (e.g. interviewer asks "tell me about your experience with microservices" and broker requires "microservices experience"), it counts as `coveredRequirements`. The match is by topic, not by exact phrasing.
+
+This prevents the model from putting everything in `notAssessedRequirements` just because the interviewer didn't phrase a question as "do you know X?".
+
+File: `apps/api/src/prompts/analyze.prompt.ts` — update Rule 6 (BROKER REQUIREMENTS CLASSIFICATION)
+
+**Step 3 — Add `brokerProxyScore` as a fallback signal** (`analyze.prompt.ts` + `schemas.ts`)
+
+For cases where the interview genuinely didn't touch broker requirements at all, add a second computed field — `brokerProxyScore` — calculated purely from confirmed CV skills overlap with required skills:
+
 ```
-brokerProxyScore = confirmedSkills ∩ requiredSkills / requiredSkills × 100
+brokerProxyScore = |confirmedSkills ∩ requiredSkills| / requiredSkills.length × 100
 ```
-- `brokerMatchScore` stays 0 (honest: nothing was explicitly tested from the broker list)
-- `brokerProxyScore` gives a useful "likely match" signal based on what was tested
+
+- `brokerMatchScore` remains the interview-based score (honest: 0 if nothing was tested)
+- `brokerProxyScore` is the CV-based estimate: "given what this candidate knows, how well do they likely match?"
 - Add `brokerProxyScore: z.number().min(0).max(100).optional()` to `BrokerRequestMatchSchema`
 
-**Step 3 — Adjust prompt instruction for INDEPENDENT ASSESSMENT mode** (`analyze.prompt.ts`):
-In the independent assessment section, add a nuance: if the candidate demonstrably answered a question that covers a broker requirement (even if the question wasn't phrased as "do you know X") — it counts as `coveredRequirements`. Currently the instruction may be too strict about requiring a direct question about the exact requirement name.
+Files: `apps/api/src/prompts/analyze.prompt.ts`, `packages/shared/src/schemas.ts`
 
-**Step 4 — UI change** (`BrokerMatchBlock.tsx`):
-- When `brokerMatchScore === 0` AND `notAssessedRequirements` has items AND `brokerProxyScore` is defined:
-  Show `"0% tested in interview"` in a neutral color (not alarming red) with a secondary line: `"Likely match based on confirmed skills: N%"`
-- When `brokerMatchScore === 0` AND `notAssessedRequirements` is empty:
-  Keep red — nothing was matched and nothing was untested (genuine 0).
+**Step 4 — Update UI** (`BrokerMatchBlock.tsx`)
 
-Files to change:
-- `apps/api/src/prompts/analyze.prompt.ts` — proxy score instruction, loosen independent assessment broker rule
-- `packages/shared/src/schemas.ts` — add `brokerProxyScore` to `BrokerRequestMatchSchema`
-- `apps/web/src/components/analysis/BrokerMatchBlock.tsx` — display proxy score, change color logic
+- `brokerMatchScore > 0`: show as-is (interview-verified match)
+- `brokerMatchScore === 0` + `notAssessedRequirements.length > 0` + `brokerProxyScore` defined:
+  Show `"Not tested in interview"` in neutral grey, with secondary badge `"CV estimate: N%"` in amber
+- `brokerMatchScore === 0` + `notAssessedRequirements` empty:
+  Keep red — nothing was matched and nothing was missed (genuine problem)
+
+File: `apps/web/src/components/analysis/BrokerMatchBlock.tsx`
 
 ---
 
@@ -177,18 +184,16 @@ Files to change:
 
 ## Implementation order
 
-1. **Bug 1 — investigation first**: confirm Cause A or B (check `LLM_MODEL` env var, check if `meta.decision` was set on dev analysis). No code yet.
-2. **Bug 2** — create `pdfUtils.ts`, apply `sanitizePdfText` everywhere. Self-contained, unblocks reliable PDF ingestion.
-3. **Bug 3 (step 1)** — increase `CV_MAX_CHARS` while `cv.service.ts` is open from the Bug 2 fix. Single-line change.
-4. **Bug 1 — code**: add proxy score to prompt + schema + UI display.
-5. **Bug 1 — prompt tweak** (if needed): loosen the independent assessment broker rule after observing results.
-6. **UI improvements** — Bug 3 (step 2) CandidateModal scroll hint.
+1. **Bug 2** — create `pdfUtils.ts`, apply `sanitizePdfText` everywhere. Self-contained, unblocks reliable PDF ingestion.
+2. **Bug 3 (step 1)** — increase `CV_MAX_CHARS` while `cv.service.ts` is open. Single-line change.
+3. **Bug 1, step 1** — set `temperature: 0`. One-line change, immediate effect on determinism.
+4. **Bug 1, step 2** — loosen broker prompt rule.
+5. **Bug 1, step 3+4** — add `brokerProxyScore` to prompt + schema + UI.
+6. **Bug 3 (step 2)** — CandidateModal scroll hint.
 
 ---
 
 ## Open questions before implementation
 
-1. **Bug 1 — model**: Is `LLM_MODEL` the same on prod and dev? This is the most likely root cause — check first before writing any code.
-2. **Bug 1 — RAG**: Does prod have significantly more embeddings in Qdrant than dev? Check `similarCasesText` length in prod worker logs.
-3. **Bug 1 — truncation**: Are there any `[stage:llm]` warnings in prod logs for the affected analysis? Truncated JSON would explain 0% across the board.
-4. **Bug 2**: Share an example PDF that fails to parse — confirms whether the issue is literal `\n`, null bytes, or a malformed structure.
+1. **Bug 2**: Share an example PDF that fails to parse — confirms whether the issue is literal `\n`, null bytes, or something else before writing the sanitizer.
+2. **Bug 3**: Is the CV displayed in the modal via URL fetch (Linear flow) or via file upload? This determines whether the 7,000 char limit is the actual source of truncation the user sees.
