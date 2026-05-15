@@ -43,7 +43,7 @@ export async function analyzeInterview(
       { role: 'user', content: userMessage },
     ],
     response_format: { type: 'json_object' },
-    temperature: 0.1,
+    temperature: 0,
     max_tokens: 6000,
   });
 

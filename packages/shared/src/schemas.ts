@@ -75,6 +75,7 @@ export const BrokerRequestMatchSchema = z.object({
   notAssessedRequirements: z.array(z.string()).optional(),         // in broker request but NOT covered in interview (neutral)
   brokerMatchScore: z.number().min(0).max(100),   // based only on tested requirements
   brokerFitSummary: z.string(),
+  brokerProxyScore: z.number().min(0).max(100).optional()
 });
 
 export const TechnicalAnalysisSchema = z.object({
