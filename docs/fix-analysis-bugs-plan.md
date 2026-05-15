@@ -6,55 +6,62 @@ Branch: `fix/analysis-bugs-plan` → merge into `main`
 
 ## Bug 1 — brokerMatchScore = 0% on prod (works correctly on dev)
 
-### Root cause (primary)
+### Confirmed facts
 
-`getIssueData()` in `linear.service.ts` fetches only `description` as the broker request:
+- The `brokerRequest` field **was received by the LLM** and **populated in the analysis modal** — so data transfer is not the problem.
+- The LLM correctly parsed the broker requirements into `requiredSkills`.
+- Despite this, `brokerMatchScore = 0%`.
 
-```typescript
-brokerRequest: issueData.description,
+### Root cause
+
+The LLM classified **all broker requirements as `notAssessedRequirements`** — it found no requirements that were explicitly tested AND passed/failed in the interview. By the scoring formula in `analyze.prompt.ts`:
+
+```
+brokerMatchScore = coveredRequirements.length / (coveredRequirements.length + missingRequirements.length) × 100
+If nothing was tested → use 0.
 ```
 
-On prod, the Linear issue `description` is likely **null or empty** — broker requirements may be stored as a first comment, in a custom field, or just never filled in the description. As a result, `buildUserMessage()` sends `"Broker request not provided"` to the LLM, which correctly puts everything in `notAssessedRequirements`. By the formula:
+With `coveredRequirements = []` and `missingRequirements = []`, the denominator is 0 → result is 0. This is mathematically correct per the rule but **uninformative** — the user sees 0% as if nothing matched, when in reality nothing was just *explicitly tested* in the interview.
 
-```
-brokerMatchScore = coveredRequirements / (covered + missing) × 100
-nothing tested → 0
-```
+### Why dev worked but prod didn't
 
-The score is correctly 0 — but for the wrong reason (missing data, not missing match).
+Two likely causes (verify before implementing):
 
-### Root cause (secondary)
+**Cause A — Different LLM model on prod vs dev** (`LLM_MODEL` env var).
+A stricter model follows the "explicitly tested with a direct question" rule more literally and puts more requirements into `notAssessedRequirements`. A more lenient model counts a candidate *mentioning* a technology as evidence of testing.
 
-Even when `brokerRequest` IS provided but the interview itself didn't explicitly test any broker requirements (common in screening calls), the formula always returns 0. The user expects at least a partial proxy score based on confirmed CV skills overlapping with the broker list.
+**Cause B — `meta.decision` was set on dev but not on prod.**
+When `meta.decision` is provided (`hired`/`rejected`), the prompt switches to **DECISION JUSTIFICATION** mode (lines 209–228 of `analyze.prompt.ts`). In this mode the LLM is instructed to "find concrete technical strengths that justify the hire decision" — which naturally pushes it to classify more skills as `coveredRequirements`. Without a decision, it applies independent strict rules, leading to more `notAssessedRequirements`.
+
+Check: did the dev analysis have `meta.decision` set, and prod did not?
 
 ### Fix plan
 
-**Step 1 — Debug logging** in `analyze.worker.ts` (no behavior change):
-- Log the final resolved `brokerRequest` value before it reaches `buildUserMessage`
-- Log whether it came from `job.data.brokerRequest`, `additionalContext`, or `meta.brokerRequest`
+**Step 1 — Check env vars first** (no code change):
+- Compare `LLM_MODEL` on prod and dev — if different, test the prod model with the same data on dev first.
 
-**Step 2 — Fallback proxy score in the prompt** (`analyze.prompt.ts`):
-- Extend the scoring rules section to instruct the LLM: when `coveredRequirements` and `missingRequirements` are both empty, calculate `brokerMatchScore` as:
-  ```
-  confirmedSkills ∩ requiredSkills / requiredSkills × 100
-  ```
-  Store the real formula result in `brokerMatchScore` and the proxy in a new field `brokerProxyScore` (so they're distinguishable in the UI).
-- Update `BrokerRequestMatchSchema` in `packages/shared/src/schemas.ts` to add optional `brokerProxyScore: z.number().min(0).max(100).optional()`
+**Step 2 — Add proxy score to the prompt and schema** (`analyze.prompt.ts` + `schemas.ts`):
+When `coveredRequirements` and `missingRequirements` are both empty, instruct the LLM to compute a secondary signal — `brokerProxyScore` — based on overlap between `confirmedSkills` (things tested in the interview) and `requiredSkills` (broker list):
+```
+brokerProxyScore = confirmedSkills ∩ requiredSkills / requiredSkills × 100
+```
+- `brokerMatchScore` stays 0 (honest: nothing was explicitly tested from the broker list)
+- `brokerProxyScore` gives a useful "likely match" signal based on what was tested
+- Add `brokerProxyScore: z.number().min(0).max(100).optional()` to `BrokerRequestMatchSchema`
 
-**Step 3 — Enrich broker request from Linear** (`linear.service.ts` + `linear.parser.ts`):
-- In `getIssueData()`, try fetching the issue's first body comment as a fallback if `description` is null. Many teams post requirements as a pinned/first comment.
-- Alternatively, expose a new GraphQL query that fetches custom field values alongside description (if the team uses Linear's "Estimates" or custom fields for broker requirements).
+**Step 3 — Adjust prompt instruction for INDEPENDENT ASSESSMENT mode** (`analyze.prompt.ts`):
+In the independent assessment section, add a nuance: if the candidate demonstrably answered a question that covers a broker requirement (even if the question wasn't phrased as "do you know X") — it counts as `coveredRequirements`. Currently the instruction may be too strict about requiring a direct question about the exact requirement name.
 
 **Step 4 — UI change** (`BrokerMatchBlock.tsx`):
-- When `brokerMatchScore === 0` AND `notAssessedRequirements.length > 0` AND `brokerProxyScore !== undefined`, show: `"Not tested in interview — proxy: N%"` instead of `"0%"` in red
+- When `brokerMatchScore === 0` AND `notAssessedRequirements` has items AND `brokerProxyScore` is defined:
+  Show `"0% tested in interview"` in a neutral color (not alarming red) with a secondary line: `"Likely match based on confirmed skills: N%"`
+- When `brokerMatchScore === 0` AND `notAssessedRequirements` is empty:
+  Keep red — nothing was matched and nothing was untested (genuine 0).
 
 Files to change:
-- `apps/api/src/services/linear.service.ts` — `getIssueData()`
-- `apps/api/src/services/linear.parser.ts` — `parseIssue()` fallback
-- `apps/api/src/workers/analyze.worker.ts` — debug logging
-- `apps/api/src/prompts/analyze.prompt.ts` — proxy score instruction + updated schema comment
-- `packages/shared/src/schemas.ts` — `BrokerRequestMatchSchema`
-- `apps/web/src/components/analysis/BrokerMatchBlock.tsx` — proxy score display
+- `apps/api/src/prompts/analyze.prompt.ts` — proxy score instruction, loosen independent assessment broker rule
+- `packages/shared/src/schemas.ts` — add `brokerProxyScore` to `BrokerRequestMatchSchema`
+- `apps/web/src/components/analysis/BrokerMatchBlock.tsx` — display proxy score, change color logic
 
 ---
 
@@ -160,15 +167,17 @@ Files to change:
 
 ## Implementation order
 
-1. **Bug 2 first** — create `pdfUtils.ts`, apply `sanitizePdfText` everywhere. This is self-contained and unblocks reliable transcript/CV ingestion.
-2. **Bug 3 (step 1)** — increase `CV_MAX_CHARS` while `cv.service.ts` is open from the Bug 2 fix. Single-line change.
-3. **Bug 1** — add debug logging first (deploy to prod, observe actual `brokerRequest` value in logs), then add proxy score and Linear description fallback.
-4. **UI improvements** — Bug 3 (step 2) and Bug 1 (step 4) after backend changes are validated.
+1. **Bug 1 — investigation first**: confirm Cause A or B (check `LLM_MODEL` env var, check if `meta.decision` was set on dev analysis). No code yet.
+2. **Bug 2** — create `pdfUtils.ts`, apply `sanitizePdfText` everywhere. Self-contained, unblocks reliable PDF ingestion.
+3. **Bug 3 (step 1)** — increase `CV_MAX_CHARS` while `cv.service.ts` is open from the Bug 2 fix. Single-line change.
+4. **Bug 1 — code**: add proxy score to prompt + schema + UI display.
+5. **Bug 1 — prompt tweak** (if needed): loosen the independent assessment broker rule after observing results.
+6. **UI improvements** — Bug 3 (step 2) CandidateModal scroll hint.
 
 ---
 
 ## Open questions before implementation
 
-1. **Bug 1**: On prod, check server logs to confirm whether `brokerRequest` arrives as `null`/empty in the worker. This determines whether Step 2 (proxy score) or Step 3 (Linear enrichment) is the right fix.
-2. **Bug 2**: Share an example of a PDF that fails to parse so the exact failure mode can be confirmed before writing the sanitizer.
-3. **Bug 1 model difference**: Are `LLM_MODEL` and `EMBEDDING_MODEL` env vars identical between prod and dev? A different model can produce systematically different scoring behavior.
+1. **Bug 1 — model**: Is `LLM_MODEL` the same on prod and dev? If different, this is the root cause — test prod model on dev with the same data first.
+2. **Bug 1 — decision field**: Did the dev analysis have `meta.decision = 'hired'` or `'rejected'` set, and did prod NOT have it set? This switches the LLM into a different scoring mode.
+3. **Bug 2**: Share an example PDF that fails to parse — this will confirm whether the issue is literal `\n`, null bytes, or something else before writing the sanitizer.
