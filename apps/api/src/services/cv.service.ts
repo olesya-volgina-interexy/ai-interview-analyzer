@@ -10,7 +10,7 @@ const LINEAR_UPLOAD_RE = /uploads\.linear\.app\//i;
 
 // ── Главная функция извлечения текста ──────────────────────────────────
 
-const CV_MAX_CHARS = 7_000;
+const CV_MAX_CHARS = 20_000;
 
 export async function extractCVText(cvUrl: string): Promise<string> {
   const url = cvUrl.trim();

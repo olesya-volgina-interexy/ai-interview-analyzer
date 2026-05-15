@@ -126,6 +126,11 @@ MANDATORY RULES
 
 6. BROKER REQUIREMENTS CLASSIFICATION
    - coveredRequirements: broker requirements explicitly tested AND demonstrated in the interview
+      NOTE: "explicitly tested" includes cases where the interviewer asked a question whose
+      topic demonstrably covers the broker requirement — even if the requirement name was
+      not mentioned verbatim. Example: broker requires "microservices experience",
+      interviewer asks "describe your experience decomposing a monolith" → this counts
+      as testing that requirement if the candidate's answer demonstrates it.
    - missingRequirements: broker requirements explicitly tested BUT candidate FAILED to demonstrate
    - notAssessedRequirements: broker requirements NOT raised in the interview (neutral — zero score impact)
    - The label "missing" is reserved EXCLUSIVELY for tested-and-failed requirements.
@@ -141,8 +146,23 @@ MANDATORY RULES
      If nothing was tested → use 0.
    - brokerMatchScore = coveredRequirements.length / (coveredRequirements.length + missingRequirements.length) × 100
      If nothing was tested → use 0.
+  - brokerProxyScore: calculated ONLY when coveredRequirements and missingRequirements
+  are both empty (nothing from broker list was explicitly tested).
+  Formula: count of items in confirmedSkills that match any item in requiredSkills
+  / requiredSkills.length × 100.
+  Matching is by topic/technology, not exact string. If nothing to match, use 0.
+  This is a secondary signal only — brokerMatchScore remains 0 when untested.
    - overall score reflects ONLY the quality of answers actually given.
      Untested topics have ZERO effect on any score — do not lower scores for interviewer's choice of scope.
+  - Answers reached only after interviewer correction of an explicit error: cap the
+    contribution of that question at 60% of its normal weight.
+  - Answers reached after guided arrival (interviewer hints/leading questions): cap at 70%.
+  - For each instance where the interviewer recapped the candidate's answer with
+    "so what you mean is... did I understand correctly?": subtract 3 from overall score
+    (unclear communication pattern).
+  - For each explicit "keep it time-bound" / "let's be more concise" from the
+    interviewer: subtract 2 from overall score (verbosity pattern).
+    Apply a maximum of 3 such deductions (−6 points total cap).
 
 8. NARRATIVE EXPERIENCE — DUAL RULE
    Technical experience described in free-form narrative ("in my last project I did X") is valid evidence
@@ -156,10 +176,28 @@ MANDATORY RULES
   knowledge of that specific technology in their answer.
 
 9. SELF-CORRECTION RULE
-   If the candidate gives an imprecise or incorrect answer but SELF-CORRECTS within the same response,
-   treat the final corrected version as their answer. Do not penalise the initial imprecision.
+   If the candidate gives an imprecise or incorrect answer but SELF-CORRECTS within
+   the same response WITHOUT any interviewer input, treat the final corrected version
+   as their answer. Do not penalise the initial imprecision.
    Example: "it runs in parallel... well, not parallel in the traditional sense, but..."
-   → this is terminology clarification, not a fundamental misunderstanding.
+   → terminology clarification, not a fundamental misunderstanding.
+
+   EXCEPTION — INTERVIEWER CORRECTION (active scan required):
+   Before applying this rule, scan the transcript for the following interviewer
+   correction patterns:
+   a) Direct contradiction: "that's not right", "that's incorrect", "no, actually",
+      "they are not stateless", "that's the problem", "that's exactly the issue", "that's what we're trying to fix", "that's not how it works"
+   b) Re-explanation after wrong answer: interviewer explains the correct concept
+      immediately after the candidate's answer (teaching pattern)
+   c) Pointed follow-up: "are you sure about that?", "think about it again",
+      "what do you mean exactly?" — when asked right after a factually wrong answer
+
+   If ANY of these patterns appear after a candidate answer:
+   — This is NOT a self-correction, even if the candidate then gives the right answer
+   — Record in weaknesses: "[Topic]: initial answer was wrong, corrected only after
+     interviewer pointed out the error — not self-detected"
+   — Apply the 60% score cap from Rule 7 to this question's contribution
+   — Do NOT credit this as epistemic honesty (Rule 11) or reasoned arrival (Rule 10)
 
 10. REASONED ARRIVAL RULE
     If the candidate does not immediately give the correct answer but arrives at it through
@@ -201,6 +239,12 @@ Before generating the final JSON, verify:
 [ ] If recommendation is "hire" — all broker MUST HAVEs have positive evidence from the transcript
 [ ] If recommendation is "no_hire" — at least one decision breaker exists with transcript evidence
 [ ] If broker MUST HAVEs were not tested → recommendation is "uncertain", not "hire"
+[ ] Interviewer corrections are NOT treated as self-corrections — each has a
+    capped score contribution
+[ ] Interviewer recap instances are recorded in weaknesses
+[ ] Verbosity deductions are applied if interviewer asked for conciseness 2+ times
+[ ] brokerProxyScore is calculated and present if coveredRequirements is empty
+
 
 If any check fails — revise before output.
 
@@ -286,6 +330,24 @@ NEGATIVE patterns (require explicit transcript evidence):
   "[Topic]: required interviewer guidance to reach correct answer — pattern not instinctive"
   This is mandatory even if the final answer was correct.
   It is NOT a decision breaker unless the same pattern repeats across 3+ separate questions.
+- Interviewer correction (NOT self-correction): interviewer explicitly stated
+  candidate's answer was wrong before candidate revised it → record in weaknesses,
+  cap score contribution per Rule 7. Do NOT apply the self-correction rule (Rule 9).
+- Interviewer recap pattern: interviewer paraphrased candidate's answer with
+  "so what you mean is... correct?" or similar → record in weaknesses as
+  "unclear answer structure — interviewer had to rephrase for confirmation".
+- Verbosity pattern: interviewer explicitly asked candidate to be more concise
+  (e.g. "let's keep it time-bound", "be more concise") → record in weaknesses,
+  apply score deduction per Rule 7.
+- Unfamiliar term exposure: interviewer asked "have you heard this term before?"
+  or explained a term before the candidate could answer → record in weaknesses as
+  "[term]: unfamiliar on first exposure — answer only possible after interviewer
+  explanation".
+- AI over-reliance for senior roles: candidate frames AI tools as the primary method
+  for core judgment tasks ("I'll ask Claude / my AI agent for this") in response to
+  a question about independent decision-making → record in risks as
+  "over-reliance on AI for senior-level autonomous judgment".
+- If the candidate explicitly states their team/project scale and it is significantly smaller than what the role requires (based on broker request context), record in risks as "team scale gap: candidate's stated experience is N, role context implies M"
 
 POSITIVE patterns (credit appropriately):
 - Self-correction — candidate initially imprecise but corrected within same response → treat final version as correct
