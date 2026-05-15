@@ -9,10 +9,13 @@ import { candidateRoutes } from './routes/candidates';
 import { clientRoutes } from './routes/clients';
 import { uploadRoutes } from './routes/upload';
 import { preparationRoutes } from './routes/preparation';
+import { authRoutes } from './routes/auth';
 import './workers/analyze.worker';
 import './workers/preparation.worker';
 import { linearWebhookRoutes } from './routes/webhooks/linear';
 import { verifyLinearAuth } from './services/linear.service';
+import { registerAuth } from './middleware/auth';
+import { registerRateLimit } from './middleware/rateLimit';
 
 const app = Fastify({ logger: true });
 
@@ -27,8 +30,17 @@ if (process.env.NODE_ENV === 'production' && !process.env.CORS_ORIGIN) {
 }
 
 app.register(cors, { origin: corsOrigins });
-app.register(linearWebhookRoutes);
+app.register(registerAuth);
 
+app.addHook('onRequest', async (request, reply) => {
+  const open = ['/api/auth/login', '/api/auth/refresh', '/health'];
+  if (open.includes(request.url)) return;
+  if (request.url.startsWith('/webhooks/linear')) return;
+  return app.authenticate(request, reply);
+});
+
+app.register(registerRateLimit);
+app.register(linearWebhookRoutes);
 app.register(analyzeRoutes, { prefix: '/api' });
 app.register(interviewRoutes, { prefix: '/api' });
 app.register(statsRoutes, { prefix: '/api' });
@@ -36,13 +48,14 @@ app.register(candidateRoutes, { prefix: '/api' });
 app.register(clientRoutes, { prefix: '/api' });
 app.register(uploadRoutes, { prefix: '/api' });
 app.register(preparationRoutes, { prefix: '/api' });
+app.register(authRoutes, { prefix: '/api' });
 
 app.get('/health', async () => ({ status: 'ok', version: '1.0.0' }));
 
 const REQUIRED_ENV = [
   'DATABASE_URL', 'REDIS_URL', 'QDRANT_URL',
   'LLM_API_KEY', 'LLM_BASE_URL', 'LINEAR_API_KEY',
-  'LINEAR_WEBHOOK_SECRET',
+  'LINEAR_WEBHOOK_SECRET', 'JWT_SECRET',
 ];
 
 const start = async () => {

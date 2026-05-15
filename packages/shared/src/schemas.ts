@@ -191,6 +191,28 @@ export const GeneratePreparationDocRequestSchema = z.object({
   cvText: z.string().optional(),
 });
 
+export const AuthUserSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+  name: z.string().nullable(),
+  role: z.string(),
+});
+
+export const LoginRequestSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+
+export const LoginResponseSchema = z.object({
+  accessToken: z.string(),
+  refreshToken: z.string(),
+  user: AuthUserSchema,
+});
+
+export const RefreshRequestSchema = z.object({
+  refreshToken: z.string(),
+});
+
 export type FinalResultAnalysis = z.infer<typeof FinalResultAnalysisSchema>;
 export type InterviewStage = z.infer<typeof InterviewStageSchema>;
 export type InterviewMeta = z.infer<typeof InterviewMetaSchema>;
@@ -207,3 +229,7 @@ export type ChatRequest = z.infer<typeof ChatRequestSchema>;
 export type PreparationDocStatus = z.infer<typeof PreparationDocStatusSchema>;
 export type PreparationDoc = z.infer<typeof PreparationDocSchema>;
 export type GeneratePreparationDocRequest = z.infer<typeof GeneratePreparationDocRequestSchema>;
+export type AuthUser = z.infer<typeof AuthUserSchema>;
+export type LoginRequest = z.infer<typeof LoginRequestSchema>;
+export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;

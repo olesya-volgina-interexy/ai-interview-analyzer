@@ -1,4 +1,4 @@
-import { createRouter, createRoute, createRootRoute, Outlet } from '@tanstack/react-router';
+import { createRouter, createRoute, createRootRoute, Outlet, redirect } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
 import { Layout } from './components/layout/Layout';
 
@@ -9,8 +9,15 @@ const CandidateDetailPage  = lazy(() => import('./pages/CandidateDetailPage').th
 const ClientsPage = lazy(() => import('./pages/ClientsPage').then(m => ({ default: m.ClientsPage })));
 const ClientDetailPage = lazy(() => import('./pages/ClientDetailPage').then(m => ({ default: m.ClientDetailPage })));
 const PreparationDocPage = lazy(() => import('./pages/PreparationDocPage').then(m => ({ default: m.PreparationDocPage })));
+const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
 
 const rootRoute = createRootRoute({
+  beforeLoad: ({ location }) => {
+    const token = localStorage.getItem('accessToken');
+    if (!token && location.pathname !== '/login') {
+      throw redirect({ to: '/login' });
+    }
+  },
   component: () => (
     <Layout>
       <Suspense fallback={null}>
@@ -18,6 +25,12 @@ const rootRoute = createRootRoute({
       </Suspense>
     </Layout>
   ),
+});
+
+const loginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/login',
+  component: LoginPage,
 });
 
 const dashboardRoute = createRoute({
@@ -63,6 +76,7 @@ const preparationDocRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
+  loginRoute,
   dashboardRoute,
   interviewsRoute,
   candidatesRoute,
