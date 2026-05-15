@@ -25,15 +25,25 @@ With `coveredRequirements = []` and `missingRequirements = []`, the denominator 
 
 ### Why dev worked but prod didn't
 
-Two likely causes (verify before implementing):
+Both analyses were triggered via Linear webhook with **identical input data** — same transcript, CV, and broker request. The pipeline code is the same. The difference must be in the **runtime environment**.
 
-**Cause A — Different LLM model on prod vs dev** (`LLM_MODEL` env var).
-A stricter model follows the "explicitly tested with a direct question" rule more literally and puts more requirements into `notAssessedRequirements`. A more lenient model counts a candidate *mentioning* a technology as evidence of testing.
+**Cause A — Different `LLM_MODEL` on prod vs dev (most likely)**
 
-**Cause B — `meta.decision` was set on dev but not on prod.**
-When `meta.decision` is provided (`hired`/`rejected`), the prompt switches to **DECISION JUSTIFICATION** mode (lines 209–228 of `analyze.prompt.ts`). In this mode the LLM is instructed to "find concrete technical strengths that justify the hire decision" — which naturally pushes it to classify more skills as `coveredRequirements`. Without a decision, it applies independent strict rules, leading to more `notAssessedRequirements`.
+The prompt rule `"explicitly tested with a direct question"` is interpreted differently by different models. A stricter or newer model classifies broker requirements as `notAssessedRequirements` unless the interviewer asked about them explicitly by name. A more permissive model credits a candidate mentioning a technology during any answer as implicit testing.
 
-Check: did the dev analysis have `meta.decision` set, and prod did not?
+> Check: compare `LLM_MODEL` env var on prod vs dev. If different — run the same transcript + broker request against the prod model on dev to reproduce.
+
+**Cause B — RAG context inflates the input and pushes transcript out of window**
+
+Prod Qdrant likely has more historical embeddings than dev. `findSimilarInterviews` returns up to 3 similar cases, and `formatSimilarCases()` prepends their reasoning to the user message. If prod similar cases are long, the combined input grows — on a model with a smaller effective context window, the later part of the transcript (where broker-relevant questions may have been asked) gets truncated or underweighted.
+
+> Check: compare lengths of `similarCasesText` in prod vs dev logs. Does prod have more interviews in Qdrant?
+
+**Cause C — `max_tokens: 6000` causes JSON truncation on prod**
+
+If the prod model generates more verbose text (longer `reasoning`, `overallAssessment`, etc.), it may hit `max_tokens: 6000` set in `llm.service.ts`. The truncated JSON either fails validation entirely or gets partially recovered — with `coveredRequirements` defaulting to `[]` and `brokerMatchScore` to 0.
+
+> Check: look for `[stage:llm]` errors or warnings in prod logs around the timestamp of the 0% analysis.
 
 ### Fix plan
 
@@ -178,6 +188,7 @@ Files to change:
 
 ## Open questions before implementation
 
-1. **Bug 1 — model**: Is `LLM_MODEL` the same on prod and dev? If different, this is the root cause — test prod model on dev with the same data first.
-2. **Bug 1 — decision field**: Did the dev analysis have `meta.decision = 'hired'` or `'rejected'` set, and did prod NOT have it set? This switches the LLM into a different scoring mode.
-3. **Bug 2**: Share an example PDF that fails to parse — this will confirm whether the issue is literal `\n`, null bytes, or something else before writing the sanitizer.
+1. **Bug 1 — model**: Is `LLM_MODEL` the same on prod and dev? This is the most likely root cause — check first before writing any code.
+2. **Bug 1 — RAG**: Does prod have significantly more embeddings in Qdrant than dev? Check `similarCasesText` length in prod worker logs.
+3. **Bug 1 — truncation**: Are there any `[stage:llm]` warnings in prod logs for the affected analysis? Truncated JSON would explain 0% across the board.
+4. **Bug 2**: Share an example PDF that fails to parse — confirms whether the issue is literal `\n`, null bytes, or a malformed structure.
