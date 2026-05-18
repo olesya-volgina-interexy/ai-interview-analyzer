@@ -7,12 +7,24 @@ import { llmClient, LLM_MODEL } from './llm.client';
 import {
   buildSystemPrompt,
   buildUserMessage,
+  buildTechnicalStep1Prompt,
+  buildTechnicalStep2Prompt,
+  buildStep1UserMessage,
   MANAGER_CALL_JSON_SCHEMA,
-  TECHNICAL_JSON_SCHEMA,
   buildFinalResultSystemPrompt,
   FINAL_RESULT_JSON_SCHEMA
 } from '../prompts/analyze.prompt';
+import {
+  processExtraction,
+  buildStep2Input,
+  type Step1Output,
+  type ProcessedExtraction,
+} from './extraction.middleware';
 import { describeError } from '../utils/errorLogger';
+
+function stripJsonFences(raw: string): string {
+  return raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+}
 
 export async function analyzeInterview(
   transcript: string,
@@ -24,11 +36,12 @@ export async function analyzeInterview(
   }
 ): Promise<CandidateAnalysis> {
 
-  const jsonSchema = meta.stage === 'manager_call'
-    ? MANAGER_CALL_JSON_SCHEMA
-    : TECHNICAL_JSON_SCHEMA;
+  if (meta.stage === 'technical') {
+    return analyzeTechnicalInterview(transcript, meta, options);
+  }
 
-  const systemPrompt = buildSystemPrompt(meta) + '\n\n' + jsonSchema;
+  // Manager call — single step (unchanged)
+  const systemPrompt = buildSystemPrompt(meta) + '\n\n' + MANAGER_CALL_JSON_SCHEMA;
   const userMessage = buildUserMessage(
     transcript,
     options?.cvText,
@@ -42,17 +55,15 @@ export async function analyzeInterview(
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userMessage },
     ],
-    response_format: { type: 'json_object' },
-    temperature: 0,
-    max_tokens: 6000,
+    max_completion_tokens: 6000,
   });
 
   const choice = response.choices[0];
-  const rawContent = choice.message.content ?? '{}';
+  const rawContent = stripJsonFences(choice.message.content ?? '{}');
 
   if (choice.finish_reason === 'length') {
     console.error('LLM response truncated (finish_reason=length):', rawContent);
-    throw new Error('LLM response truncated — increase max_tokens or shorten the schema');
+    throw new Error('LLM response truncated — increase max_completion_tokens or shorten the schema');
   }
 
   try {
@@ -68,6 +79,136 @@ export async function analyzeInterview(
     });
     throw new Error('Failed to parse LLM response');
   }
+}
+
+async function analyzeTechnicalInterview(
+  transcript: string,
+  meta: InterviewMeta,
+  options?: {
+    cvText?: string;
+    brokerRequest?: string;
+    similarCases?: string;
+  }
+): Promise<CandidateAnalysis> {
+
+  // ── Step 1: extraction + pattern scan ──────────────────────
+  console.log('[stage:llm] technical step 1 — extraction start');
+
+  const step1Response = await llmClient.chat.completions.create({
+    model: LLM_MODEL,
+    messages: [
+      { role: 'system', content: buildTechnicalStep1Prompt() },
+      { role: 'user', content: buildStep1UserMessage(transcript) },
+    ],
+    max_completion_tokens: 5000,
+  });
+
+  const step1Choice = step1Response.choices[0];
+
+  if (step1Choice.finish_reason === 'length') {
+    console.error('[stage:llm] step 1 truncated');
+    throw new Error('Technical step 1 truncated — transcript may be too long');
+  }
+
+  const extractionRaw = stripJsonFences(step1Choice.message.content ?? '{}');
+
+  let step1Parsed: Step1Output;
+  try {
+    step1Parsed = JSON.parse(extractionRaw) as Step1Output;
+  } catch {
+    console.error('[stage:llm] step 1 returned invalid JSON', { preview: extractionRaw.slice(0, 500) });
+    throw new Error('Technical step 1 returned invalid JSON');
+  }
+
+  console.log('[stage:llm] technical step 1 output:', extractionRaw);
+  console.log('[stage:llm] technical step 1 done, starting middleware + step 2');
+
+  const processed = processExtraction(step1Parsed, options?.cvText, options?.brokerRequest, meta);
+
+  // ── Step 2: LLM writes human-readable assessment ────────────────────────
+  const step2UserContent = buildStep2Input(processed, options?.brokerRequest);
+
+  const step2Response = await llmClient.chat.completions.create({
+    model: LLM_MODEL,
+    messages: [
+      { role: 'system', content: buildTechnicalStep2Prompt(meta) },
+      { role: 'user', content: step2UserContent },
+    ],
+    max_completion_tokens: 3000,
+  });
+
+  const step2Choice = step2Response.choices[0];
+  const rawContent = stripJsonFences(step2Choice.message.content ?? '{}');
+
+  if (step2Choice.finish_reason === 'length') {
+    console.error('LLM response truncated (finish_reason=length):', rawContent);
+    throw new Error('LLM response truncated — increase max_completion_tokens');
+  }
+
+  try {
+    const assessment = JSON.parse(rawContent);
+    return mergeTechnicalOutput(processed, assessment);
+  } catch (err) {
+    console.error('[stage:llm] analyzeInterview parse/schema failed', {
+      ...describeError(err),
+      stage: meta.stage,
+      role: meta.role,
+      level: meta.level,
+      rawContentPreview: rawContent.slice(0, 1500),
+    });
+    throw new Error('Failed to parse LLM response');
+  }
+}
+
+function mergeTechnicalOutput(processed: ProcessedExtraction, assessment: Record<string, unknown>): CandidateAnalysis {
+  return CandidateAnalysisSchema.parse({
+    stage: 'technical',
+    interviewFormat: processed.interviewFormat,
+    targetRole: assessment.targetRole ?? '',
+    nonTargetRoles: assessment.nonTargetRoles ?? [],
+    overallAssessment: assessment.overallAssessment ?? '',
+    technicalLevel: assessment.technicalLevel ?? processed.technicalLevel,
+    languageAssessment: processed.languageAssessment,
+    strengths: processed.strengths,
+    weaknesses: processed.weaknesses,
+    risks: processed.risks,
+    interviewerSentiment: processed.interviewerSentiment,
+    technicalSkills: assessment.technicalSkills ?? {
+      depthOfKnowledge: '', problemSolving: '', codeQuality: '', systemDesign: '',
+    },
+    cvMatch: {
+      declaredSkills: processed.declaredSkills,
+      confirmedSkills: processed.confirmedSkills,
+      unconfirmedSkills: processed.unconfirmedSkills,
+      discrepancies: processed.discrepancies,
+      cvMatchScore: processed.cvMatchScore,
+    },
+    brokerRequestMatch: {
+      requiredSkills: processed.requiredSkills,
+      coveredRequirements: processed.coveredRequirements,
+      missingRequirements: processed.missingRequirements,
+      notAssessedRequirements: processed.notAssessedRequirements,
+      brokerMatchScore: processed.brokerMatchScore,
+      brokerFitSummary: assessment.brokerFitSummary ?? '',
+      brokerProxyScore: processed.brokerProxyScore,
+      brokerCoveragePercent: processed.brokerCoveragePercent,
+      brokerCoverageReliability: processed.brokerCoverageReliability,
+    },
+    // Enforce: no_hire is only valid when there are missing requirements
+    recommendation: (assessment.recommendation === 'no_hire' && processed.missingRequirements.length === 0)
+      ? 'uncertain'
+      : assessment.recommendation ?? 'uncertain',
+    reasoning: assessment.reasoning ?? '',
+    // Enforce: decisionBreakers only for no_hire, and only from missingRequirements
+    decisionBreakers: assessment.recommendation === 'no_hire' && processed.missingRequirements.length > 0
+      ? (assessment.decisionBreakers ?? [])
+      : [],
+    roleFitSummary: assessment.roleFitSummary ?? '',
+    score: processed.score,
+    answerQualityScore: processed.answerQualityScore,
+    scopeCoverageScore: processed.scopeCoverageScore,
+    questions: processed.questions,
+  });
 }
 
 export async function analyzeFinalResult(
@@ -86,12 +227,10 @@ export async function analyzeFinalResult(
         content: `PREVIOUS ANALYSES:\n\n${previousAnalyses}`
       },
     ],
-    response_format: { type: 'json_object' },
-    temperature: 0.1,
-    max_tokens: 2000,
+    max_completion_tokens: 2000,
   });
 
-  const raw = response.choices[0].message.content ?? '{}';
+  const raw = stripJsonFences(response.choices[0].message.content ?? '{}');
 
   try {
     return FinalResultAnalysisSchema.parse(JSON.parse(raw));
@@ -134,12 +273,10 @@ ${items.map((item, i) => `${i + 1}. ${item}`).join('\n')}`;
     const response = await llmClient.chat.completions.create({
       model: LLM_MODEL,
       messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' },
-      temperature: 0.1,
-      max_tokens: 1000,
+      max_completion_tokens: 1000,
     });
 
-    const raw = response.choices[0].message.content ?? '[]';
+    const raw = stripJsonFences(response.choices[0].message.content ?? '[]');
     const parsed = JSON.parse(raw);
     const arr = Array.isArray(parsed) ? parsed : (parsed.clusters ?? parsed.groups ?? parsed.items ?? []);
     return arr

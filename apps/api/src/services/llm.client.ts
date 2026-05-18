@@ -5,4 +5,4 @@ export const llmClient = new OpenAI({
   baseURL: process.env.LLM_BASE_URL,
 });
 
-export const LLM_MODEL = process.env.LLM_MODEL ?? 'qwen-plus';
+export const LLM_MODEL = process.env.LLM_MODEL ?? 'gpt-4o';

@@ -123,8 +123,7 @@ Return ONLY the full name (e.g. "John Smith"). If the name cannot be determined,
 CV:
 ${cvText.slice(0, 2500)}`,
       }],
-      max_tokens: 20,
-      temperature: 0,
+      max_completion_tokens: 500,
     });
 
     const name = response.choices[0].message.content?.trim();
@@ -152,8 +151,7 @@ Return ONLY one word: Junior, Middle, or Senior. Nothing else.
 CV:
 ${cvText.slice(0, 3500)}`,
       }],
-      max_tokens: 10,
-      temperature: 0,
+      max_completion_tokens: 500,
     });
 
     const level = response.choices[0].message.content?.trim();
@@ -180,8 +178,7 @@ Return ONLY the full name (e.g. "John Smith", "John S"). If the name cannot be d
 Transcript (first 2000 chars):
 ${transcript.slice(0, 2000)}`,
       }],
-      max_tokens: 20,
-      temperature: 0,
+      max_completion_tokens: 500,
     });
 
     const name = response.choices[0].message.content?.trim();
