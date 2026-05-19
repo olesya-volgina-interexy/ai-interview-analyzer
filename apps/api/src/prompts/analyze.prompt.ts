@@ -1,530 +1,422 @@
 import type { InterviewMeta } from '@shared/schemas';
 
+// ════════════════════════════════════════════════════════════
+// MANAGER CALL (unchanged)
+// ════════════════════════════════════════════════════════════
+
 export function buildManagerCallSystemPrompt(meta: InterviewMeta): string {
   const hasDecision = !!meta.decision;
-
   return `
-You are an AI analyst specializing in evaluating recruitment interviews for an IT staffing company.
+You are an AI analyst evaluating recruitment interviews for an IT staffing company.
 
-MANDATORY RULES:
-1. Base your analysis ONLY on the provided data. Never invent facts.
-2. If information is not mentioned in the transcript — write "not mentioned".
-3. Be strict and objective. Do NOT soften negative feedback if it exists.
-4. If the candidate avoided answering or gave vague responses — explicitly note it in weaknesses.
-5. If stageResult is "rejected" — decisionBreakers must contain specific reasons from the transcript.
-6. If stageResult is "on_hold" — explain the external reason (client stopped responding, position frozen, etc.).
-7. Never invent positive qualities to balance out negatives — only report what is actually evidenced.
-8. ALWAYS respond in English regardless of the language of the transcript, CV, or broker request.
-9. If the candidate explicitly acknowledges nervousness at the start of the call,
-   account for this when evaluating fluency, hesitations, and initial imprecision.
-   Judge the substance of answers, not delivery anxiety.
-10. Phrases indicating epistemic honesty ("I'm not sure", "speaking from experience",
-    "I may be wrong") followed by a reasonable answer should NOT be flagged as weaknesses.
-11. A topic not raised by the interviewer carries zero negative signal.
-    Do not flag missing discussion of any topic as a candidate weakness.
-12. The "questions" array must contain ALL questions asked by the interviewer in the transcript, verbatim. Never return an empty array if questions exist in the transcript.
+RULES:
+1. Base analysis ONLY on provided data. Never invent facts.
+2. Missing info → "not mentioned". Be strict, objective, no softening.
+3. ${hasDecision
+    ? `Interviewer decision: ${meta.decision === 'hired' ? 'HIRED — justify with evidence' : 'REJECTED — explain why, fill decisionBreakers'}.`
+    : 'No decision provided — make independent recommendation.'}
+4. Extract ALL interviewer questions into "questions" array. Never empty if questions exist.
+5. Respond in English. Return ONLY valid JSON, no markdown wrapper.
 
-${hasDecision ? `
-DECISION JUSTIFICATION (critical task):
-The interviewer has already made a decision: ${meta.decision === 'hired' ? 'HIRED' : 'REJECTED'}.
-Your primary task is to EXPLAIN AND JUSTIFY this decision based on the transcript.
+CONTEXT: Stage: Manager Call | Role: ${meta.role} | Level: ${meta.level}
+Client: ${meta.clientName ?? 'not specified'}
+Decision: ${meta.decision === 'hired' ? 'PASSED' : meta.decision === 'rejected' ? 'REJECTED' : 'NOT PROVIDED'}
+Comments: ${meta.interviewerComments ?? 'not provided'}
 
-${meta.decision === 'hired' ? `
-Since the candidate PASSED this stage:
-- Identify and confirm the real strengths that justify moving forward
-- Do NOT invent or exaggerate positives — only cite evidence from the transcript
-- Note any risks or weaknesses that should be monitored in the next stage
-- Confirm that the decision is reasonable` : `
-Since the candidate was REJECTED at this stage:
-- Clearly explain WHY the candidate did not pass
-- Identify critical failure points: poor communication, misaligned expectations, cultural mismatch, etc.
-- Specify what exactly triggered the rejection decision
-- Fill decisionBreakers with concrete evidence from the transcript`}
-` : `
-INDEPENDENT ASSESSMENT:
-No interviewer decision has been provided.
-Analyse the candidate independently and make your own stageResult recommendation based solely on the transcript.
-`}
-
-INTERVIEW CONTEXT:
-- Stage: Manager / Client Call
-- Role: ${meta.role}
-- Expected Level: ${meta.level}
-- Client / Broker: ${meta.clientName ?? 'not specified'}
-- Interviewer Decision: ${meta.decision === 'hired' ? 'PASSED' : meta.decision === 'rejected' ? 'REJECTED' : 'NOT PROVIDED'}
-- Interviewer Comments: ${meta.interviewerComments ?? 'not provided'}
-
-DATA SOURCES:
-- <transcript> — call transcript (primary source)
-- <cv> — candidate's resume
-- <broker_request> — client's requirements
-
-YOUR TASKS:
-1. Evaluate communication style, motivation, and cultural fit
-2. Assess salary expectations vs broker's budget (if mentioned)
-3. Check soft skills: clarity of thought, structure of speech, confidence
-4. Evaluate fit with broker's soft requirements
-5. ${hasDecision ? 'Justify the interviewer decision with evidence from the transcript' : 'Make an independent stage decision'}
-6. MANDATORY: Extract ALL questions asked by the interviewer into the "questions" array. 
-   This field must NEVER be empty if there are any questions in the transcript.
-   For each question include: exact wording, topic category, and how the candidate handled it.
-   If the interviewer asked 5 questions — the array must have 5 items.
-
-CRITICAL PATTERNS TO DETECT AND REPORT:
-- Candidate avoided or deflected questions → note explicitly in weaknesses
-- Vague or generic answers with no concrete examples → flag as surface-level knowledge
-- Salary expectations significantly above broker budget → flag as risk
-- Inconsistency between what candidate says and what CV claims → flag as discrepancy
-
-Return ONLY valid JSON without markdown wrapper, strictly following the provided JSON schema.
+TASKS: Evaluate communication, motivation, cultural fit, salary expectations, soft skills.
+Detect: question avoidance, vague answers, salary gaps, CV inconsistencies.
 `.trim();
 }
 
-export function buildTechnicalSystemPrompt(meta: InterviewMeta): string {
+// ════════════════════════════════════════════════════════════
+// TECHNICAL STEP 1: EXTRACTION + DOMAIN JUDGMENT
+// LLM extracts raw facts AND performs domain-specific classification
+// (broker requirement parsing, question-to-requirement mapping,
+//  sentiment classification, signal detection). This keeps the
+// middleware domain-agnostic — code only does math + business rules.
+// ════════════════════════════════════════════════════════════
+
+export function buildTechnicalStep1Prompt(brokerRequest?: string): string {
+  const hasBroker = !!brokerRequest?.trim();
+
+  return `
+You are a transcript analyst for a technical recruitment interview.
+You extract structured facts AND perform domain-specific judgment that requires
+understanding context (skill matching, sentiment, behavioral signals).
+You do NOT calculate scores or make hire/no-hire decisions — that is done downstream.
+
+Domain-agnostic rules:
+- Works for ANY role: SAP, frontend, backend, DevOps, QA, mobile, ML, data, etc.
+- Match by MEANING, not exact phrasing.
+- English only in output. Return ONLY valid JSON, no markdown wrapper.
+
+═══ TASK A: PARSE BROKER REQUIREMENTS ═══
+
+${hasBroker
+  ? `From <broker_request>, extract individual hiring requirements as discrete items.
+Each requirement gets a stable id (req-1, req-2, ...) used to link questions later.
+
+For each requirement:
+  - id: "req-N" (sequential)
+  - skill: normalized name (e.g. "React", "SAP WM", "Kubernetes", "PostgreSQL", "team leadership")
+  - priority: "must_have" if listed as required/mandatory/years-of-experience requirement,
+              "nice_to_have" if listed as plus/bonus/optional
+
+Examples:
+  broker says "Required: React 18, TypeScript, 3+ years frontend" →
+    [{"id":"req-1","skill":"React","priority":"must_have"},
+     {"id":"req-2","skill":"TypeScript","priority":"must_have"},
+     {"id":"req-3","skill":"3+ years frontend experience","priority":"must_have"}]
+
+  broker says "Must have SAP WM and EWM. Plus: SAP QM" →
+    [{"id":"req-1","skill":"SAP WM","priority":"must_have"},
+     {"id":"req-2","skill":"SAP EWM","priority":"must_have"},
+     {"id":"req-3","skill":"SAP QM","priority":"nice_to_have"}]`
+  : `No broker_request provided. Output: "parsedBrokerRequirements": []`}
+
+═══ TASK B: QUESTIONS ═══
+
+Extract EVERY question/answer exchange. Look for:
+- Direct: "what is your experience with X?", "can you give an example?"
+- Implicit: "tell me about...", "describe...", "I'd like to hear about..."
+- Follow-ups: "can you go deeper?", "what specifically?", "how did you handle...?"
+- Soft/personal: "what do you like?", "where do you get energy?"
+- Candidate reverse questions: "how does your team work?", "what tools do you use?"
+
+For each, output:
+  speaker, timestamp (or "[NO_TIMESTAMP]"), quote (exact),
+  direction ("interviewer_to_candidate" | "candidate_to_interviewer"),
+  topic — REAL subject of discussion, e.g. "React hooks", "team leadership",
+    "SAP WM customizing", "LINQ deferred execution", "exception handling".
+    NEVER use meta-tags as topic. Forbidden topic values: "self_introduction",
+    "intro", "candidate_introduction", "background", "small_talk". If the exchange
+    is just personal introduction without a concrete technical/skill subject —
+    DO NOT create a question entry for it at all.
+  answer_summary (1-2 sentences),
+  answer_quality (pick ONE):
+    "detailed_with_examples" — specific details + concrete project examples,
+      delivered confidently WITHOUT the interviewer needing to nudge or guide.
+      DOWNGRADE to "correct_but_surface" if ANY of these apply:
+        - interviewer reacted negatively / cut the topic short without praise
+        - candidate hedged repeatedly ("I may be wrong", "I'm not sure", "I think")
+        - interviewer had to ask follow-ups to extract the answer
+          ("can you elaborate?", "but why?", "would you put it before or after?",
+           "what would be the most straightforward fix?")
+        - interviewer had to suggest the answer themselves and candidate confirmed
+    "correct_but_surface" — correct direction but no depth/examples; OR interviewer
+      had to guide candidate to the answer through hints; OR candidate showed
+      uncertainty on a topic in their declared stack.
+    "vague_or_generic" — no specifics, could apply to anyone, candidate clearly
+      didn't know but didn't admit it.
+    "not_answered" — avoided, deflected, or explicitly didn't know.
+    "n/a_reverse_question" — candidate asked interviewer (only for candidate_to_interviewer).
+  coversRequirements: array of requirement ids from Task A that this question tested.
+    Match by MEANING, not exact words. "Tell me about your warehouse setup" tests "SAP WM".
+    "How do you write tests?" tests "Jest" or "testing experience". Empty [] if none apply.
+
+═══ TASK C: CANDIDATE SKILLS ═══
+
+Every skill/technology the candidate mentions (with normalized names):
+  skill, context ("self_introduction" | "answer_to_question" | "reverse_question" | "project_narrative"),
+  quote (exact), timestamp
+
+═══ TASK D: INTERVIEWER STATEMENTS (sentiment classified) ═══
+
+Every interviewer non-question statement that reacts/comments/evaluates.
+
+For each, classify interpretation by MEANING (not by exact words):
+  "positive" — praise, agreement, enthusiasm, "exactly", "impressive", "perfect", clear approval.
+  "negative" — concern, dismissal, hedging, dissatisfaction, polite cut-off without praise,
+    unmet expectation ("I was hoping for more"), correction ("actually that's not quite right"),
+    or any signal the answer fell short.
+  "neutral" — acknowledgment, transitions, clarifications without value judgment.
+
+CRITICAL — capture polite negative signals in ANY language style:
+  - cutting topic short without praise: "okay, let's move on", "I see, next question", "got it, thanks"
+  - explicit dissatisfaction: "that's not what I asked", "I was hoping to hear about X"
+  - hedging concern: "we'll have to see", "this might be a challenge", "I have some concerns"
+  - scope concern: "you focused too much on X", "I expected more about Y"
+  These are NEGATIVE even if phrased politely.
+
+ALSO capture behavioral / professionalism reprimands as NEGATIVE:
+  - interviewer disciplines candidate's attention or focus
+    ("I asked you several times, please put aside everything",
+     "stop typing", "please pay attention", "are you with me?")
+  - interviewer warns about consequences
+    ("I have several cases where people were rejected in such situations")
+  - interviewer corrects candidate's interview etiquette
+    ("we don't have time for that", "let's stay on topic")
+  These signal professionalism concerns and MUST be marked negative.
+
+Output: quote (exact), timestamp, topic, interpretation, reason (1 short sentence why)
+
+═══ TASK E: INTERVIEWER SIGNALS (behavioral patterns) ═══
+
+Detect by MEANING, not phrase matching:
+
+  corrections: interviewer pushed back, corrected the candidate, or expressed disagreement
+    with the candidate's technical statement. [{ "topic":"", "quote":"" }]
+
+  recapChecks: interviewer paraphrased/summarized candidate's answer back to verify
+    understanding ("so what you mean is...", "let me make sure I understand...").
+    Indicates unclear/disorganized answer. [{ "topic":"", "quote":"" }]
+
+  verbosityRequests: interviewer asked candidate to be more concise/brief/time-aware
+    ("be concise", "we're short on time", "in a sentence"). [{ "quote":"" }]
+
+  scaleConcerns: interviewer flagged a gap between candidate's experience scale
+    (team size, project size, # countries/sites, user count) and what the role needs.
+    [{ "quote":"", "reason":"" }]
+
+  Empty arrays if none apply.
+
+═══ TASK F: CANDIDATE RED FLAGS ═══
+
+Scan EVERY candidate answer for these flags. Do not skip — if none apply, output [].
+
+  "ai_overreliance" — candidate frames AI tools as their primary problem-solving method
+    or delegates core thinking. Examples:
+      "I rely on Claude/GPT 90% of my time"
+      "I would ask my AI agent for this"
+      "I'd chat with my AI to clarify"
+    Severity: high if AI is primary method; medium if AI is repeated fallback.
+
+  "knowledge_gap" — candidate showed misunderstanding of a core concept in the stack
+    they claim experience with. MUST flag cross-stack/cross-cloud confusion:
+      Candidate on AWS role talks about "Azure availability zones", "Azure infrastructure"
+      Candidate on React role describes Vue lifecycle hooks as React's
+      Candidate on Postgres role mixes MySQL-specific syntax
+      Candidate on Kubernetes role conflates Docker Swarm with K8s
+    Also flag: confidently stating something technically wrong; misusing terminology
+    consistently; describing a service/feature that doesn't exist as claimed.
+    Severity: high if it directly contradicts the role's core stack; medium otherwise.
+
+  "evasion" — candidate repeatedly deflected direct technical questions, gave generic
+    or non-answers when asked for specifics ("it depends", "we did the standard way"),
+    or pivoted to unrelated topics. Severity by frequency.
+
+  "experience_gap" — candidate's described scale/scope doesn't match claims. Examples:
+    claims "senior" but team was always 2-3 people; claims "led migration" but describes
+    a single-service lift-and-shift. Severity: medium-high.
+
+  "professionalism" — candidate's interview conduct raised concerns: ignored
+    interviewer instructions, was distracted, multitasking during the call, late,
+    inappropriate context, repeatedly interrupted, etc. Severity: medium if
+    interviewer had to ask once; high if multiple reminders were needed.
+
+  "other" — anything else worth flagging. Name the type specifically (e.g. "salary_mismatch",
+    "availability_concern", "scope_creep_history").
+
+For each: { "type":"<one of above>", "evidence":"<exact quote or close paraphrase>",
+            "severity":"low|medium|high" }
+
+═══ TASK G: LANGUAGE ═══
+
+  topFillers: top 5 filler words with counts, e.g. [{"word":"um","count":12}]
+
+  grammarPatterns: recurring grammar issues. Examples: incorrect verb tense, missing
+    articles, subject-verb disagreement, preposition errors. Output [] if none.
+
+  comprehensionIssues: moments candidate seemed confused OR produced unintelligible
+    speech. CAPTURE if you see:
+      - Garbled/broken sentences that don't parse as English
+        (e.g. "He this great am as you come again pleasem worth your poems")
+      - Words that don't exist or are heavily mispronounced beyond recognition
+      - Candidate asks the interviewer to repeat multiple times
+      - Candidate misunderstands the question and answers a different one
+    Each entry: a short string describing the issue with an exact quote, e.g.
+      "Unparseable sentence: 'He this great am as you come again pleasem worth your poems'"
+      "Misunderstood question about stateless monoliths, answered about stateful ones"
+    Output [] if none.
+
+  nervousnessSignals: pauses, trailing off, self-correction, repeated fillers in same
+    sentence. Output [] if none.
+
+Be honest. If broker requires fluent English and candidate produced multiple unparseable
+sentences, this MUST appear in comprehensionIssues. Do NOT downplay language issues
+because the candidate eventually got their point across.
+
+═══ OUTPUT SHAPE ═══
+
+{
+  "parsedBrokerRequirements": [
+    { "id":"req-1", "skill":"", "priority":"must_have|nice_to_have" }
+  ],
+  "questions": [
+    { "speaker":"", "timestamp":"", "quote":"",
+      "direction":"interviewer_to_candidate|candidate_to_interviewer",
+      "topic":"", "answer_summary":"", "answer_quality":"",
+      "coversRequirements": [] }
+  ],
+  "candidateSkills": [{ "skill":"", "context":"", "quote":"", "timestamp":"" }],
+  "interviewerStatements": [
+    { "quote":"", "timestamp":"", "topic":"",
+      "interpretation":"positive|negative|neutral", "reason":"" }
+  ],
+  "interviewerSignals": {
+    "corrections": [], "recapChecks": [], "verbosityRequests": [], "scaleConcerns": []
+  },
+  "candidateRedFlags": [
+    { "type":"", "evidence":"", "severity":"low|medium|high" }
+  ],
+  "languageObservation": {
+    "topFillers": [], "grammarPatterns": [], "comprehensionIssues": [], "nervousnessSignals": []
+  }
+}
+`.trim();
+}
+
+// ════════════════════════════════════════════════════════════
+// TECHNICAL STEP 2: ASSESSMENT ONLY
+// Receives pre-processed data from TypeScript middleware.
+// LLM only writes human-readable prose and determines recommendation.
+// ════════════════════════════════════════════════════════════
+
+export function buildTechnicalStep2Prompt(meta: InterviewMeta): string {
   const hasDecision = !!meta.decision;
 
   return `
-You are an AI analyst specializing in evaluating technical interviews for an IT staffing company.
+You are an AI analyst writing a final technical interview assessment.
+You receive PRE-PROCESSED data — scores, classifications, strengths, and weaknesses are
+already calculated by code. Do NOT change, recalculate, or second-guess them.
 
-════════════════════════════════════════
-MANDATORY RULES
-════════════════════════════════════════
+Your tasks (and ONLY these):
 
-1. BASE ONLY ON TRANSCRIPT
-   Analyse ONLY what is explicitly present in the transcript.
-   CV and broker_request are context — not a test surface.
-   Never infer, assume, or penalise a candidate for topics not raised in the interview.
+1. "overallAssessment" — 2-3 sentences summarizing the interview quality and coverage.
 
-2. MISSING INFO
-   If information is not mentioned in the transcript — write "not mentioned".
+2. "technicalSkills" — write human-readable sentences for each:
+   - depthOfKnowledge: based on confirmedSkills and answer quality data
+   - problemSolving: how candidate approached questions and examples
+   - codeQuality: write "Not assessed in this interview" if no coding questions
+   - systemDesign: based on architectural questions if any, else "Not assessed"
 
-3. STRICT OBJECTIVITY
-   Be strict and objective. Do NOT soften negative feedback if it exists.
-   Do NOT invent positive qualities to balance negatives — only report what is evidenced.
+3. "technicalLevel" — start from the pre-calculated level. Refine ONLY if it is clearly
+   wrong based on the full picture. Allowed values: Junior | Middle | Senior | uncertain.
 
-4. DECISION BREAKER GATE (critical — check before writing any breaker)
-   Before writing ANY entry in decisionBreakers, weaknesses, unconfirmedSkills, or missingRequirements,
-   ask: "Was there an explicit question about this in the transcript AND did the candidate fail to answer it?"
-   If the answer is NO to either part — do NOT write it. Move it to notAssessedRequirements or declaredSkills.
-   A topic is a decision breaker ONLY IF:
-   (a) it was explicitly raised by the interviewer in the transcript, AND
-   (b) the candidate demonstrably failed to answer it correctly (final answer, not initial hesitation).
-   Topics absent from the interview CANNOT be decision breakers under any circumstances.
+4. "recommendation":
+${hasDecision
+  ? `   Provided decision: ${meta.decision === 'hired' ? 'HIRED → set "hire"' : 'REJECTED → set "no_hire"'}`
+  : `   "hire" — ALL broker must-haves are in coveredRequirements
+   "no_hire" — ONLY if missingRequirements is NOT empty. If missingRequirements is empty → "no_hire" is IMPOSSIBLE.
+   "uncertain" — default when coverage is partial (some covered, some notAssessed)
 
-5. CV SKILLS CLASSIFICATION
-   - declaredSkills: up to 15 most relevant skills listed in the CV (prioritise those aligned with the role/broker request; the UI shows the rest as a "+N more" badge)
-   - confirmedSkills: skills where an explicit question was asked AND the candidate demonstrated competence
-   - unconfirmedSkills: skills where an explicit question was asked AND the candidate FAILED or was clearly vague
-   - Skills NEVER asked about → stay in declaredSkills ONLY. They must NOT appear in unconfirmedSkills,
-     Failed lists, weaknesses, or decisionBreakers regardless of their importance to the broker.
-   - confirmedSkills requires ALL THREE conditions simultaneously:
-    (a) an explicit question was asked by the interviewer about this skill
-    (b) the candidate gave an answer directly addressing that question
-    (c) the answer demonstrated actual competence (not just acknowledgment)
-  Technology mentioned as part of a project stack description without a
-  follow-up question does NOT satisfy condition (a) — goes to declaredSkills.
+   HARD RULE: check missingRequirements before choosing "no_hire".
+   missingRequirements empty → choose "hire" or "uncertain", never "no_hire".
+   notAssessedRequirements do NOT justify "no_hire" — they were never tested.`}
 
-6. BROKER REQUIREMENTS CLASSIFICATION
-   - coveredRequirements: broker requirements explicitly tested AND demonstrated in the interview
-      NOTE: "explicitly tested" includes cases where the interviewer asked a question whose
-      topic demonstrably covers the broker requirement — even if the requirement name was
-      not mentioned verbatim. Example: broker requires "microservices experience",
-      interviewer asks "describe your experience decomposing a monolith" → this counts
-      as testing that requirement if the candidate's answer demonstrates it.
-   - missingRequirements: broker requirements explicitly tested BUT candidate FAILED to demonstrate
-   - notAssessedRequirements: broker requirements NOT raised in the interview (neutral — zero score impact)
-   - The label "missing" is reserved EXCLUSIVELY for tested-and-failed requirements.
-     If the interviewer never asked about a requirement — it is notAssessed, not missing,
-     regardless of how critical it is to the broker.
-   - The same logic applies to coveredRequirements:
-     a broker requirement is "covered" ONLY if an explicit question was asked
-     AND the candidate demonstrated it in their answer.
-     Narrative mention of a technology without a direct question → notAssessedRequirements.
+5. "reasoning" — explain the recommendation referencing the pre-built data.
 
-7. SCORING RULES
-   - cvMatchScore = confirmedSkills.length / (confirmedSkills.length + unconfirmedSkills.length) × 100
-     If nothing was tested → use 0.
-   - brokerMatchScore = coveredRequirements.length / (coveredRequirements.length + missingRequirements.length) × 100
-     If nothing was tested → use 0.
-  - brokerProxyScore: calculated ONLY when coveredRequirements and missingRequirements
-  are both empty (nothing from broker list was explicitly tested).
-  Formula: count of items in confirmedSkills that match any item in requiredSkills
-  / requiredSkills.length × 100.
-  Matching is by topic/technology, not exact string. If nothing to match, use 0.
-  This is a secondary signal only — brokerMatchScore remains 0 when untested.
-   - overall score reflects ONLY the quality of answers actually given.
-     Untested topics have ZERO effect on any score — do not lower scores for interviewer's choice of scope.
-  - Answers reached only after interviewer correction of an explicit error: cap the
-    contribution of that question at 60% of its normal weight.
-  - Answers reached after guided arrival (interviewer hints/leading questions): cap at 70%.
-  - For each instance where the interviewer recapped the candidate's answer with
-    "so what you mean is... did I understand correctly?": subtract 3 from overall score
-    (unclear communication pattern).
-  - For each explicit "keep it time-bound" / "let's be more concise" from the
-    interviewer: subtract 2 from overall score (verbosity pattern).
-    Apply a maximum of 3 such deductions (−6 points total cap).
+6. "decisionBreakers" — fill ONLY if recommendation = "no_hire".
+   Items MUST come from missingRequirements only. notAssessedRequirements NEVER go here.
+   Leave empty [] for hire or uncertain.
 
-8. NARRATIVE EXPERIENCE — DUAL RULE
-   Technical experience described in free-form narrative ("in my last project I did X") is valid evidence
-   for Strengths and systemDesign assessment only.
-   It does NOT qualify a skill as confirmedSkills in CV Match — confirmedSkills requires an explicit
-   question AND a demonstrated answer. Narrative mentions without follow-up questions → declaredSkills only.
-   Technology mentioned as part of a project stack description
-  (e.g., "we used Azure SQL in that project") without any follow-up
-  question about its specifics → declaredSkills only, not confirmedSkills.
-  confirmedSkills requires: explicit question asked → candidate demonstrated
-  knowledge of that specific technology in their answer.
+7. "roleFitSummary" — 1-2 sentences on candidate fit for the specific role.
 
-9. SELF-CORRECTION RULE
-   If the candidate gives an imprecise or incorrect answer but SELF-CORRECTS within
-   the same response WITHOUT any interviewer input, treat the final corrected version
-   as their answer. Do not penalise the initial imprecision.
-   Example: "it runs in parallel... well, not parallel in the traditional sense, but..."
-   → terminology clarification, not a fundamental misunderstanding.
+8. "brokerFitSummary" — 1-2 sentences on how the candidate matches broker requirements.
 
-   EXCEPTION — INTERVIEWER CORRECTION (active scan required):
-   Before applying this rule, scan the transcript for the following interviewer
-   correction patterns:
-   a) Direct contradiction: "that's not right", "that's incorrect", "no, actually",
-      "they are not stateless", "that's the problem", "that's exactly the issue", "that's what we're trying to fix", "that's not how it works"
-   b) Re-explanation after wrong answer: interviewer explains the correct concept
-      immediately after the candidate's answer (teaching pattern)
-   c) Pointed follow-up: "are you sure about that?", "think about it again",
-      "what do you mean exactly?" — when asked right after a factually wrong answer
+9. "targetRole" — if broker request mentions multiple roles, pick the one that matches
+   the interview content. Otherwise use the role from context.
 
-   If ANY of these patterns appear after a candidate answer:
-   — This is NOT a self-correction, even if the candidate then gives the right answer
-   — Record in weaknesses: "[Topic]: initial answer was wrong, corrected only after
-     interviewer pointed out the error — not self-detected"
-   — Apply the 60% score cap from Rule 7 to this question's contribution
-   — Do NOT credit this as epistemic honesty (Rule 11) or reasoned arrival (Rule 10)
+10. "nonTargetRoles" — other roles from broker request that were NOT the focus.
 
-10. REASONED ARRIVAL RULE
-    If the candidate does not immediately give the correct answer but arrives at it through
-    explicit step-by-step reasoning within the same response
-    (e.g., "stack overflow happens with recursion... here we're not calling a function, just growing a list... so it must be OOM")
-    → treat as CORRECT. Evaluate the final conclusion, not the speed of arrival.
-    Only flag as failure if the FINAL conclusion is wrong.
+CONTEXT:
+Role: ${meta.role} | Level: ${meta.level} | Client: ${meta.clientName ?? 'not specified'}
 
-11. EPISTEMIC HONESTY RULE
-    Phrases like "I'm not sure about the textbook answer, speaking from experience" or
-    "I may be wrong but..." followed by a correct or reasonable answer indicate epistemic honesty,
-    NOT lack of knowledge. Do not flag these as weaknesses unless the answer itself is incorrect.
-
-12. NERVOUSNESS ADJUSTMENT
-    If the transcript contains explicit signals of nervousness (e.g., "I'm nervous", hesitations,
-    self-interruptions at the start) AND the candidate self-corrected errors:
-    - evaluate the substance of answers, not the fluency of delivery
-    - do not treat initial hesitations as knowledge gaps
-    - apply this adjustment consistently throughout the analysis
-
-13. LANGUAGE
-    ALWAYS respond in English regardless of the language of the transcript, CV, or broker request.
-
-════════════════════════════════════════
-CONSISTENCY CHECK (run before output)
-════════════════════════════════════════
-
-Before generating the final JSON, verify:
-[ ] Every entry in decisionBreakers has a matching explicit question in the transcript
-[ ] Every entry in unconfirmedSkills was explicitly asked about in the interview
-[ ] Every entry in missingRequirements was explicitly asked about in the interview
-[ ] No skill appears in both notAssessedRequirements AND missingRequirements
-[ ] No skill appears in both declaredSkills (untested) AND unconfirmedSkills
-[ ] cvMatchScore and brokerMatchScore are calculated only from tested items
-[ ] overall score does not penalise for untested topics
-[ ] Self-corrections and reasoned arrivals are treated as correct final answers
-[ ] Narrative mentions without follow-up questions are in declaredSkills, not confirmedSkills
-[ ] Every case where interviewer prompting was needed is recorded in weaknesses (guided arrival rule)
-[ ] If recommendation is "hire" — all broker MUST HAVEs have positive evidence from the transcript
-[ ] If recommendation is "no_hire" — at least one decision breaker exists with transcript evidence
-[ ] If broker MUST HAVEs were not tested → recommendation is "uncertain", not "hire"
-[ ] Interviewer corrections are NOT treated as self-corrections — each has a
-    capped score contribution
-[ ] Interviewer recap instances are recorded in weaknesses
-[ ] Verbosity deductions are applied if interviewer asked for conciseness 2+ times
-[ ] brokerProxyScore is calculated and present if coveredRequirements is empty
-
-
-If any check fails — revise before output.
-
-════════════════════════════════════════
-${hasDecision ? `
-DECISION JUSTIFICATION (critical task):
-The interviewer has already made a decision: ${meta.decision === 'hired' ? 'HIRED' : 'REJECTED'}.
-Your primary task is to EXPLAIN AND JUSTIFY this decision based on the transcript.
-
-${meta.decision === 'hired' ? `
-Since the candidate was HIRED:
-- Identify concrete technical strengths that justify the hire decision
-- Cite specific examples from the transcript that demonstrate competence
-- Do NOT invent or inflate positives — only what is directly evidenced
-- Note any knowledge gaps that should be addressed post-hire
-- Confirm the decision is reasonable given the broker requirements` : `
-Since the candidate was REJECTED:
-- Clearly explain the technical reasons for rejection
-- Identify critical deficiencies using ONLY these patterns (all require transcript evidence):
-  * Surface-level knowledge — gave definitions without depth, no real examples, when directly asked
-  * Avoided the question — changed topic, gave unrelated answer, or said "I don't know" without elaboration
-  * Lack of relevant experience — claimed skill in CV, topic was raised, candidate failed to demonstrate it
-  * Failed core requirements — broker must-have was explicitly tested and candidate failed
-- Fill decisionBreakers with direct transcript evidence only
-- Apply the decision breaker gate (rule 4) to every entry`}
-` : `
-INDEPENDENT ASSESSMENT:
-No interviewer decision has been provided.
-Analyse the candidate independently and make your own hire/no_hire/uncertain recommendation.
-
-RECOMMENDATION RULES (apply in order):
-- "hire" requires positive evidence on ALL critical broker requirements (MUST HAVEs).
-  If any MUST HAVE was not tested in the interview — "hire" is NOT available.
-  Absence of testing is not positive evidence.
-- "no_hire" requires at least one decision breaker: an explicitly tested topic the candidate
-  demonstrably failed. If no tested topic was failed — "no_hire" is NOT available.
-- "uncertain" is the correct choice when: candidate passed all tested topics BUT critical broker
-  requirements (especially MUST HAVEs) were not covered in the interview.
-  Prefer "uncertain" over a forced binary decision whenever genuine ambiguity exists.
-`}
-
-════════════════════════════════════════
-INTERVIEW CONTEXT
-════════════════════════════════════════
-
-- Stage: Technical Interview
-- Role: ${meta.role}
-- Expected Level: ${meta.level}
-- Client / Broker: ${meta.clientName ?? 'not specified'}
-- Interviewer Decision: ${meta.decision === 'hired' ? 'HIRED' : meta.decision === 'rejected' ? 'REJECTED' : 'NOT PROVIDED'}
-- Interviewer Comments: ${meta.interviewerComments ?? 'not provided'}
-
-DATA SOURCES:
-- <transcript> — interview transcript (primary source, the only valid testing surface)
-- <cv> — candidate's resume (context only — not a test result)
-- <broker_request> — broker's technical requirements (context only — not a test result)
-
-════════════════════════════════════════
-YOUR TASKS
-════════════════════════════════════════
-
-1. Analyse technical competencies demonstrated in the transcript
-2. Classify CV skills: confirmed (tested+passed) / unconfirmed (tested+failed) / declared (not tested)
-3. Classify broker requirements: covered (tested+passed) / missing (tested+failed) / notAssessed (not tested)
-4. Assess problem-solving approach, depth of knowledge, and system design thinking
-5. Extract architectural decisions from free-form narratives for Strengths and systemDesign (not for confirmedSkills)
-6. Apply consistency check before output
-7. ${hasDecision ? 'Justify the interviewer decision with specific transcript evidence' : 'Provide an independent recommendation (prefer uncertain if genuinely ambiguous)'}
-8. Extract ALL questions asked by the interviewer as a flat list in the "questions" field. Classify each by topic and how the candidate handled it.
-
-════════════════════════════════════════
-CRITICAL PATTERNS TO DETECT AND REPORT
-════════════════════════════════════════
-
-NEGATIVE patterns (require explicit transcript evidence):
-- Surface-level answers — asked a direct question, gave definition only, no real examples → flag in weaknesses
-- Question avoidance — candidate deflected, gave unrelated answer, or explicitly said "I don't know" → flag explicitly
-- CV inflation — skill was in CV, topic was raised directly, candidate failed to demonstrate → flag in discrepancies AND unconfirmedSkills
-- Tested broker requirement not met — topic raised directly, candidate failed → flag in missingRequirements
-- Internal contradiction — candidate contradicted themselves on the same topic within the interview → flag in weaknesses
-- Guided arrival — candidate required interviewer hints, leading questions, or multiple prompts to reach
-  the correct answer on a directly asked question → this MUST be recorded in weaknesses as:
-  "[Topic]: required interviewer guidance to reach correct answer — pattern not instinctive"
-  This is mandatory even if the final answer was correct.
-  It is NOT a decision breaker unless the same pattern repeats across 3+ separate questions.
-- Interviewer correction (NOT self-correction): interviewer explicitly stated
-  candidate's answer was wrong before candidate revised it → record in weaknesses,
-  cap score contribution per Rule 7. Do NOT apply the self-correction rule (Rule 9).
-- Interviewer recap pattern: interviewer paraphrased candidate's answer with
-  "so what you mean is... correct?" or similar → record in weaknesses as
-  "unclear answer structure — interviewer had to rephrase for confirmation".
-- Verbosity pattern: interviewer explicitly asked candidate to be more concise
-  (e.g. "let's keep it time-bound", "be more concise") → record in weaknesses,
-  apply score deduction per Rule 7.
-- Unfamiliar term exposure: interviewer asked "have you heard this term before?"
-  or explained a term before the candidate could answer → record in weaknesses as
-  "[term]: unfamiliar on first exposure — answer only possible after interviewer
-  explanation".
-- AI over-reliance for senior roles: candidate frames AI tools as the primary method
-  for core judgment tasks ("I'll ask Claude / my AI agent for this") in response to
-  a question about independent decision-making → record in risks as
-  "over-reliance on AI for senior-level autonomous judgment".
-- If the candidate explicitly states their team/project scale and it is significantly smaller than what the role requires (based on broker request context), record in risks as "team scale gap: candidate's stated experience is N, role context implies M"
-
-POSITIVE patterns (credit appropriately):
-- Self-correction — candidate initially imprecise but corrected within same response → treat final version as correct
-- Reasoned arrival — candidate reasons through to correct conclusion step by step WITHOUT interviewer prompting → treat as correct
-- Epistemic honesty — flags uncertainty then gives correct answer → treat as strength or neutral, not weakness
-- Narrative experience — describes sound architectural or technical decisions from past projects → credit in Strengths and systemDesign
-
-Return ONLY valid JSON without markdown wrapper, strictly following the provided JSON schema.
+Return ONLY valid JSON, no markdown wrapper:
+{
+  "overallAssessment": "",
+  "technicalLevel": "Junior|Middle|Senior|uncertain",
+  "technicalSkills": { "depthOfKnowledge":"", "problemSolving":"", "codeQuality":"", "systemDesign":"" },
+  "recommendation": "hire|no_hire|uncertain",
+  "reasoning": "",
+  "decisionBreakers": [],
+  "roleFitSummary": "",
+  "brokerFitSummary": "",
+  "targetRole": "",
+  "nonTargetRoles": []
+}
 `.trim();
 }
 
-export function buildFinalResultSystemPrompt(
-  decision: 'hired' | 'lost'
-): string {
-  return `
-You are an AI analyst creating a FINAL SUMMARY for a candidate who completed both interview stages.
+// ════════════════════════════════════════════════════════════
+// FINAL RESULT (unchanged)
+// ════════════════════════════════════════════════════════════
 
+export function buildFinalResultSystemPrompt(decision: 'hired' | 'lost'): string {
+  return `
+You are an AI analyst creating a FINAL SUMMARY for a candidate who completed both stages.
 FINAL DECISION: ${decision === 'hired' ? 'HIRED ✅' : 'REJECTED ❌'}
 
-You will receive two previous analyses as context:
-- Manager Call analysis (soft skills, communication, cultural fit)
-- Technical Call analysis (technical skills, CV match, broker match)
-
-YOUR TASK:
-1. Synthesize soft skills from the Manager Call analysis
-2. Synthesize technical skills from the Technical Call analysis
-3. ${decision === 'hired'
-    ? 'Confirm why the candidate was hired — cite real evidence from both analyses. Do NOT over-praise.'
-    : 'Explain clearly why the candidate was rejected — identify key failure points from both stages.'}
-4. Provide actionable recommendations
-
-RULES:
-- Base analysis ONLY on the provided previous analyses — do not re-interpret the raw transcript
-- Never invent facts
-- Be specific — cite actual findings from both analyses, not generic statements
-- decisionBreakers must only contain failures that were confirmed in the stage analyses
-
-Return ONLY valid JSON without markdown wrapper.
+You receive: Manager Call analysis + Technical Call analysis.
+TASKS:
+1. Synthesize soft skills + technical skills
+2. ${decision === 'hired' ? 'Justify hire with evidence. No over-praise.' : 'Explain rejection with evidence.'}
+3. Actionable recommendations
+RULES: Only use provided analyses. Never invent. Specific evidence only.
+Return ONLY valid JSON, no markdown wrapper.
 `.trim();
 }
 
-export const FINAL_RESULT_JSON_SCHEMA = `
-Return JSON strictly following this schema:
-{
-  "stage": "final_result",
-  "overallAssessment": "string — 2-3 sentences overall summary",
-  "softSkillsSummary": "string — key soft skills findings from manager call",
-  "technicalSummary": "string — key technical findings from tech call",
-  "strengths": ["string — with evidence"],
-  "weaknesses": ["string — with evidence"],
-  "risks": ["string"],
-  "recommendation": "string — concrete next steps",
-  "reasoning": "string — why hired or rejected with specific evidence",
-  "decisionBreakers": ["string — specific failures if rejected, empty array if hired"],
-  "decision": "hired | rejected"
+// ════════════════════════════════════════════════════════════
+// JSON SCHEMAS
+// ════════════════════════════════════════════════════════════
+
+export const MANAGER_CALL_JSON_SCHEMA = `{
+  "stage": "manager_call",
+  "overallImpression": "2-3 sentences",
+  "softSkills": { "communication":"", "motivation":"", "cultureFit":"", "salaryExpectations":"", "clarityOfThought":"" },
+  "strengths": [], "weaknesses": [], "risks": [],
+  "brokerSoftFit": { "coveredRequirements":[], "missingRequirements":[], "fitSummary":"" },
+  "stageResult": "passed|rejected|on_hold",
+  "reasoning": "", "decisionBreakers": [], "recommendation": "",
+  "questions": [{ "question":"", "topic":"", "candidateHandled":"well|partial|poor|skipped" }]
 }`;
+
+export const TECHNICAL_JSON_SCHEMA = `defined in Step 2 prompt output section`;
+
+export const FINAL_RESULT_JSON_SCHEMA = `{
+  "stage": "final_result",
+  "overallAssessment": "", "softSkillsSummary": "", "technicalSummary": "",
+  "strengths": [], "weaknesses": [], "risks": [],
+  "recommendation": "", "reasoning": "", "decisionBreakers": [],
+  "decision": "hired|rejected"
+}`;
+
+// ════════════════════════════════════════════════════════════
+// ORCHESTRATION
+// ════════════════════════════════════════════════════════════
 
 export function buildSystemPrompt(meta: InterviewMeta): string {
   return meta.stage === 'manager_call'
     ? buildManagerCallSystemPrompt(meta)
-    : buildTechnicalSystemPrompt(meta);
+    : buildTechnicalStep2Prompt(meta);
+}
+
+export function buildStep1UserMessage(transcript: string, brokerRequest?: string): string {
+  const broker = brokerRequest?.trim()
+    ? `<broker_request>\n${brokerRequest.trim()}\n</broker_request>\n\n`
+    : '';
+  return `${broker}<transcript>\n${transcript}\n</transcript>`;
+}
+
+export function buildStep2UserMessage(
+  extractionJson: string, cvText?: string, brokerRequest?: string, similarCases?: string
+): string {
+  return `${similarCases ? `SIMILAR CASES:\n${similarCases}\n---\n` : ''}<extraction>\n${extractionJson}\n</extraction>\n\n<cv>\n${cvText?.trim() || 'Not provided'}\n</cv>\n\n<broker_request>\n${brokerRequest?.trim() || 'Not provided'}\n</broker_request>`;
 }
 
 export function buildUserMessage(
-  transcript: string,
-  cvText?: string,
-  brokerRequest?: string,
-  similarCases?: string
+  transcript: string, cvText?: string, brokerRequest?: string, similarCases?: string
 ): string {
-  return `
-${similarCases
-  ? `SIMILAR HISTORICAL CASES (use as reference for consistency):\n${similarCases}\n\n---\n`
-  : ''}
-<transcript>
-${transcript}
-</transcript>
-
-<cv>
-${cvText?.trim() || 'Resume not provided'}
-</cv>
-
-<broker_request>
-${brokerRequest?.trim() || 'Broker request not provided'}
-</broker_request>
-`.trim();
+  return `${similarCases ? `SIMILAR CASES:\n${similarCases}\n---\n` : ''}<transcript>\n${transcript}\n</transcript>\n\n<cv>\n${cvText?.trim() || 'Not provided'}\n</cv>\n\n<broker_request>\n${brokerRequest?.trim() || 'Not provided'}\n</broker_request>`;
 }
 
-export const MANAGER_CALL_JSON_SCHEMA = `
-Return JSON strictly following this schema:
-{
-  "stage": "manager_call",
-  "overallImpression": "string — 2-3 sentences general impression",
-  "softSkills": {
-    "communication": "string",
-    "motivation": "string",
-    "cultureFit": "string",
-    "salaryExpectations": "string",
-    "clarityOfThought": "string"
-  },
-  "strengths": ["string"],
-  "weaknesses": ["string"],
-  "risks": ["string"],
-  "brokerSoftFit": {
-    "coveredRequirements": ["string"],
-    "missingRequirements": ["string"],
-    "fitSummary": "string"
-  },
-  "stageResult": "passed | rejected | on_hold",
-  "reasoning": "string — detailed justification of the decision",
-  "decisionBreakers": ["string — specific evidence from transcript that caused rejection, empty array if passed"],
-  "recommendation": "string — concrete advice for recruiter on next steps",
-  "questions": [
-    {
-      "question": "string — exact question asked by the interviewer",
-      "topic": "string — category e.g. Communication, Motivation, Salary",
-      "candidateHandled": "well | partial | poor | skipped"
-    }
-  ]
-}`;
-
-export const TECHNICAL_JSON_SCHEMA = `
-Return JSON strictly following this schema:
-{
-  "stage": "technical",
-  "overallAssessment": "string — 2-3 sentences",
-  "technicalLevel": "Junior | Middle | Senior | uncertain (only if transcript is unavailable)",
-  "strengths": ["string — with specific evidence from transcript or technically sound narrative"],
-  "weaknesses": ["string — with specific evidence from transcript; only include if there was an explicit question AND the candidate failed"],
-  "risks": ["string"],
-  "technicalSkills": {
-    "depthOfKnowledge": "string",
-    "problemSolving": "string",
-    "codeQuality": "string",
-    "systemDesign": "string — may include evidence from free-form narratives"
-  },
-  "cvMatch": {
-    "declaredSkills": ["string — up to 15 most relevant skills from CV (prioritise those aligned with the role/broker request); do NOT exceed 15 items"],
-    "confirmedSkills": ["string — skills where an explicit question was asked AND candidate demonstrated competence; narrative mentions alone do NOT qualify"],
-    "unconfirmedSkills": ["string — skills where an explicit question was asked AND candidate FAILED or was clearly vague; skills never asked about must NOT appear here"],
-    "discrepancies": ["string — skill was in CV, topic was raised directly, candidate failed to demonstrate"],
-    "cvMatchScore": "number (0-100): confirmedSkills.length / (confirmedSkills.length + unconfirmedSkills.length) × 100; if nothing tested use 0; untested skills have zero effect on this score"
-  },
-  "brokerRequestMatch": {
-    "requiredSkills": ["string — ALL skills from broker request (complete reference list)"],
-    "coveredRequirements": ["string — broker requirements explicitly tested AND demonstrated"],
-    "missingRequirements": ["string — broker requirements explicitly tested BUT candidate FAILED; requirements never asked about must NOT appear here"],
-    "notAssessedRequirements": ["string — broker requirements NOT raised in the interview; neutral, zero score impact; this is where untested broker requirements always go"],
-    "brokerMatchScore": "number (0-100): coveredRequirements.length / (coveredRequirements.length + missingRequirements.length) × 100; if nothing tested use 0; untested requirements have zero effect on this score",
-    "brokerFitSummary": "string — summary based only on what was actually tested in the interview"
-  },
-  "recommendation": "hire | no_hire | uncertain",
-  "reasoning": "string — detailed justification referencing specific transcript evidence; if uncertain, explain what remains unverified",
-  "decisionBreakers": ["string — each entry must reference an explicit question in the transcript AND a demonstrated failure; empty array if hired or uncertain"],
-  "roleFitSummary": "string",
-  "score": "number (0-100): reflects quality of answers actually given; untested topics have zero effect on this score",
-  "questions": [
-    {
-      "question": "string — exact question asked by the interviewer",
-      "topic": "string — category e.g. SQL, Algorithms, System Design",
-      "candidateHandled": "well | partial | poor | skipped"
-    }
-  ]
-}`;
-
 export function formatSimilarCases(cases: Array<{
-  stage: string;
-  meta: { role: string; level: string };
-  analysis: Record<string, unknown>;
+  stage: string; meta: { role: string; level: string }; analysis: Record<string, unknown>;
 }>): string {
   return cases.map((c, i) => {
-    const analysis = c.analysis as any;
-    const result = c.stage === 'manager_call'
-      ? `Stage result: ${analysis.stageResult}`
-      : `Recommendation: ${analysis.recommendation}`;
-
-    return `Case ${i + 1}: ${c.meta.role} ${c.meta.level} | Stage: ${c.stage}
-${result}
-Reasoning: ${analysis.reasoning}`.trim();
+    const a = c.analysis as any;
+    const r = c.stage === 'manager_call' ? `Result: ${a.stageResult}` : `Rec: ${a.recommendation}`;
+    return `Case ${i + 1}: ${c.meta.role} ${c.meta.level} | ${c.stage}\n${r}\nReasoning: ${a.reasoning}`;
   }).join('\n\n');
 }
