@@ -4,6 +4,8 @@ import axios from 'axios';
 import pdfParse from 'pdf-parse';
 import { llmClient, LLM_MODEL } from './llm.client';
 import { describeError } from '../utils/errorLogger';
+import { sanitizePdfText, assertExtractedTextPlausible } from '../utils/pdfUtils';
+import { stripNullBytes } from '../utils/textSanitize';
 
 // Константы для определения типа ссылки
 const LINEAR_UPLOAD_RE = /uploads\.linear\.app\//i;
@@ -41,10 +43,12 @@ async function fetchPdfContent(url: string, maxChars: number): Promise<string> {
     headers: { 'User-Agent': 'Mozilla/5.0' },
   });
 
-  const parsed = await pdfParse(Buffer.from(res.data));
-  const text = parsed.text.trim();
+  const buffer = Buffer.from(res.data);
+  const parsed = await pdfParse(buffer);
+  const text = sanitizePdfText(parsed.text);
 
   if (!text) throw new Error(`PDF content is empty`);
+  assertExtractedTextPlausible(text, buffer.length, url);
   return text.slice(0, maxChars);
 }
 
@@ -57,8 +61,8 @@ async function fetchRawTextContent(url: string, maxChars: number, withLinearAuth
 
   const res = await axios.get(url, { timeout: 20_000, headers });
 
-  const text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-  return text.slice(0, maxChars);
+  const raw = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+  return stripNullBytes(raw).slice(0, maxChars);
 }
 
 async function fetchGenericWebContent(url: string, maxChars: number): Promise<string> {
@@ -75,10 +79,12 @@ async function fetchGenericWebContent(url: string, maxChars: number): Promise<st
 
   if (contentType.includes('application/pdf')) {
     const parsed = await pdfParse(buffer);
-    return parsed.text.slice(0, maxChars);
+    const text = sanitizePdfText(parsed.text);
+    assertExtractedTextPlausible(text, buffer.length, url);
+    return text.slice(0, maxChars);
   }
 
-  const raw = buffer.toString('utf-8');
+  const raw = stripNullBytes(buffer.toString('utf-8'));
   const text = raw
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')

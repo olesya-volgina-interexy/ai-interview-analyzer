@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import pdfParse from 'pdf-parse';
 import { describeError } from '../utils/errorLogger';
+import { sanitizePdfText, assertExtractedTextPlausible } from '../utils/pdfUtils';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10 MB
 const MAX_TEXT_CHARS = 100_000;
@@ -42,18 +43,23 @@ export async function uploadRoutes(fastify: FastifyInstance) {
       let text: string;
       if (isPdf) {
         const parsed = await pdfParse(buffer);
-        text = parsed.text;
+        text = sanitizePdfText(parsed.text);
+        assertExtractedTextPlausible(text, buffer.length, filename);
       } else {
         text = buffer.toString('utf-8');
       }
 
-      const trimmed = text.trim().slice(0, MAX_TEXT_CHARS);
+      const trimmed = text.slice(0, MAX_TEXT_CHARS);
       if (!trimmed) {
         return reply.status(422).send({ error: 'File is empty or unreadable' });
       }
 
       return { text: trimmed, filename };
-    } catch (err) {
+    } catch (err: any) {
+      const msg = String(err?.message ?? '');
+      if (msg.startsWith('PDF_IMAGE_ONLY:')) {
+        return reply.status(422).send({ error: 'PDF appears to be a scanned image — please upload a text-based PDF or paste the text directly' });
+      }
       fastify.log.warn({ ...describeError(err), filename }, 'Failed to extract text from upload');
       return reply.status(422).send({ error: 'Failed to extract text from file' });
     }

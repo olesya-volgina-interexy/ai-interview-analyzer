@@ -1,6 +1,10 @@
 import type { InterviewMeta } from '@shared/schemas';
+import type { TruncationResult } from '../utils/transcriptUtils';
 
 // ─── Step 1 types (what the LLM extracts) ────────────────────────────────────
+// Step 1 LLM now performs domain-specific judgment: broker requirement parsing,
+// question-to-requirement mapping, sentiment classification, signal detection.
+// Middleware below is intentionally domain-agnostic.
 
 type AnswerQuality =
   | 'detailed_with_examples'
@@ -8,6 +12,14 @@ type AnswerQuality =
   | 'vague_or_generic'
   | 'not_answered'
   | 'n/a_reverse_question';
+
+type SentimentInterpretation = 'positive' | 'negative' | 'neutral';
+
+export interface Step1Requirement {
+  id: string;
+  skill: string;
+  priority: 'must_have' | 'nice_to_have';
+}
 
 export interface Step1Question {
   speaker: string;
@@ -17,9 +29,32 @@ export interface Step1Question {
   topic: string;
   answer_summary: string;
   answer_quality: AnswerQuality;
+  coversRequirements?: string[];
+}
+
+export interface Step1InterviewerStatement {
+  quote: string;
+  timestamp: string;
+  topic: string;
+  interpretation: SentimentInterpretation;
+  reason?: string;
+}
+
+export interface Step1Signals {
+  corrections?: Array<{ topic: string; quote: string }>;
+  recapChecks?: Array<{ topic: string; quote: string }>;
+  verbosityRequests?: Array<{ quote: string }>;
+  scaleConcerns?: Array<{ quote: string; reason?: string }>;
+}
+
+export interface Step1RedFlag {
+  type: string;
+  evidence: string;
+  severity: 'low' | 'medium' | 'high';
 }
 
 export interface Step1Output {
+  parsedBrokerRequirements?: Step1Requirement[];
   questions: Step1Question[];
   candidateSkills: Array<{
     skill: string;
@@ -27,11 +62,9 @@ export interface Step1Output {
     quote: string;
     timestamp: string;
   }>;
-  interviewerStatements: Array<{
-    quote: string;
-    timestamp: string;
-    topic: string;
-  }>;
+  interviewerStatements: Step1InterviewerStatement[];
+  interviewerSignals?: Step1Signals;
+  candidateRedFlags?: Step1RedFlag[];
   languageObservation: {
     topFillers: Array<{ word: string; count: number }>;
     grammarPatterns: string[];
@@ -67,7 +100,7 @@ export interface ProcessedExtraction {
 
   interviewerSentiment: Array<{
     signal: string;
-    interpretation: 'positive' | 'negative' | 'neutral';
+    interpretation: SentimentInterpretation;
     topic: string;
   }>;
 
@@ -89,30 +122,14 @@ export interface ProcessedExtraction {
   }>;
 
   languageObservation: Step1Output['languageObservation'];
+
+  // Filled by the caller (llm.service) when the transcript exceeded token
+  // limits and had to be truncated before Step 1 extraction. When present,
+  // buildStep2Input surfaces it so the LLM mentions the gap in overallAssessment.
+  truncation?: TruncationResult;
 }
 
-// ─── Broker skill keyword map (extend here to add new skills) ────────────────
-
-export const SKILL_KEYWORDS: Record<string, string[]> = {
-  // Long-form keywords match as substrings; short acronyms (≤3 chars) require word-boundary — see matchesSkill()
-  'SAP WM': ['warehouse', 'wm', 'storage type', 'put away', 'transfer order', 'goods receipt', 'goods issue', 'goods entry', 'goods movement', 'handling unit', 'stock', 'inspection lots', 'picking', 'putaway'],
-  'SAP QM': ['quality', 'inspection', 'inspection lot', 'sampling', 'quality notification', 'qm'],
-  'SAP PP': ['production', 'shop floor', 'bom', 'bill of materials', 'routing', 'manufacturing', 'pp'],
-  'SAP SD': ['sales', 'delivery', 'shipping', 'billing', 'sd', 'outbound'],
-  'SAP MM': ['material management', 'purchasing', 'procurement', 'purchase order', 'mm', 'vendor'],
-  'SAP LE': ['logistics execution', 'le', 'shipment'],
-  'SAP FI': ['finance', 'accounting', 'general ledger', 'accounts payable', 'fi'],
-  'AMS / Incident Management': ['incident', 'support', 'ticket', 'change request', 'ams', 'helpdesk'],
-  'Scanner-based processes': ['scanner', 'rf', 'mobile', 'barcode', 'scan'],
-  'SAP Customizing': ['customizing', 'configuration', 'img', 'spro'],
-  'SAP S/4HANA': ['s/4', 's4', 'hana', 'fiori'],
-  'AWS': ['aws', 'ec2', 's3', 'lambda', 'cloudwatch', 'eks'],
-  'Kubernetes/EKS': ['kubernetes', 'k8s', 'eks', 'container', 'pod'],
-  'Cloud Migration': ['migration', 'migrate', 'cloud', 'lift and shift', 'cutover'],
-  'Project Management': ['roadmap', 'milestone', 'sprint', 'stakeholder', 'risk management', 'delivery plan'],
-};
-
-// ─── Scoring constants (tune here) ───────────────────────────────────────────
+// ─── Scoring constants (universal, no domain knowledge) ──────────────────────
 
 const QUALITY_SCORES: Record<AnswerQuality, number> = {
   'detailed_with_examples': 90,
@@ -127,70 +144,17 @@ const MODIFIER_RECAP = -3;
 const MODIFIER_VERBOSITY = -2;
 const MODIFIER_VERBOSITY_MAX = -6;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
+// Universal "soft topic" detection — used only to exclude personal questions
+// from the technical-quality average. Generic enough to work across domains.
 const SOFT_TOPIC_KEYWORDS = [
   'personal interests', 'hobbies', 'work dislikes', 'work style',
   'free time', 'energy', 'dislikes', 'likes at work', 'favorite',
+  'motivation', 'values', 'culture',
 ];
 
 function isSoftTopic(topic: string): boolean {
-  const t = topic.toLowerCase();
+  const t = (topic ?? '').toLowerCase();
   return SOFT_TOPIC_KEYWORDS.some(k => t.includes(k));
-}
-
-const NEGATIVE_SENTIMENT_PATTERNS = [
-  "it's enough", "okay i see", "ok i see", "that's enough",
-  "mainly focused on", "really focused on",
-  "my hope was", "hope is also to cover",
-  "we have to compare", "i have a feeling",
-  "this will be the challenge", "not a good strategy",
-  "for the sake of time",
-];
-const POSITIVE_SENTIMENT_PATTERNS = [
-  "exactly", "impressive", "that's right",
-  "when you join us", "in your first weeks",
-];
-
-function classifySentiment(quote: string): 'positive' | 'negative' | 'neutral' {
-  const q = quote.toLowerCase();
-  for (const p of NEGATIVE_SENTIMENT_PATTERNS) if (q.includes(p)) return 'negative';
-  for (const p of POSITIVE_SENTIMENT_PATTERNS) if (q.includes(p)) return 'positive';
-  // "good" alone is too broad — only count isolated "good" as praise
-  if (/\bgood\b/.test(q) && !q.includes('not good') && !q.includes("not a good")) return 'positive';
-  return 'neutral';
-}
-
-// Skills where answer_summary is used as a backup when topic alone doesn't match
-const SUMMARY_BACKUP_SKILLS = new Set(['SAP WM', 'AMS / Incident Management']);
-
-function matchesSkill(text: string, skillName: string): boolean {
-  const t = text.toLowerCase();
-  return (SKILL_KEYWORDS[skillName] ?? []).some(k => {
-    // Short acronyms (≤3 chars) must be whole words to avoid "pp" matching "support", "fi" matching "find"
-    if (k.length <= 3) return new RegExp(`\\b${k}\\b`).test(t);
-    return t.includes(k);
-  });
-}
-
-function questionMatchesSkill(q: Step1Question, skill: string): boolean {
-  if (matchesSkill(q.topic, skill)) return true;
-  // Backup scan of answer_summary for skills that are commonly described there
-  if (SUMMARY_BACKUP_SKILLS.has(skill)) {
-    return matchesSkill(q.answer_summary ?? '', skill);
-  }
-  return false;
-}
-
-function parseRequiredSkills(brokerRequest: string): string[] {
-  if (!brokerRequest) return [];
-  return Object.keys(SKILL_KEYWORDS).filter(skill => matchesSkill(brokerRequest, skill));
-}
-
-function topicsOverlap(topic1: string, topic2: string): boolean {
-  const words1 = topic1.toLowerCase().split(/\W+/).filter(w => w.length > 3);
-  const t2 = topic2.toLowerCase();
-  return words1.some(w => t2.includes(w));
 }
 
 function mapCandidateHandled(quality: AnswerQuality): 'well' | 'partial' | 'poor' | 'skipped' {
@@ -198,6 +162,13 @@ function mapCandidateHandled(quality: AnswerQuality): 'well' | 'partial' | 'poor
   if (quality === 'correct_but_surface') return 'partial';
   if (quality === 'vague_or_generic') return 'poor';
   return 'skipped';
+}
+
+// Convert generic red-flag type into a human-readable risk line.
+function redFlagToRisk(flag: Step1RedFlag): string {
+  const typeLabel = flag.type.replace(/_/g, ' ');
+  const sevTag = flag.severity === 'high' ? '[HIGH] ' : flag.severity === 'medium' ? '[MED] ' : '';
+  return `${sevTag}${typeLabel}: ${flag.evidence}`.trim();
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -210,103 +181,69 @@ export function processExtraction(
 ): ProcessedExtraction {
   const log: string[] = [];
 
+  const parsedRequirements = step1.parsedBrokerRequirements ?? [];
   const questions: Step1Question[] = step1.questions ?? [];
   const candidateSkills = step1.candidateSkills ?? [];
   const interviewerStatements = step1.interviewerStatements ?? [];
+  const signals: Step1Signals = step1.interviewerSignals ?? {};
+  const redFlags = step1.candidateRedFlags ?? [];
 
-  // ── 2a. Classify sentiment (pattern matching, not LLM) ────────────────────
+  // ── 1. Sentiment is already classified by LLM — just pass through ─────────
   const classifiedSentiment = interviewerStatements.map(stmt => ({
     signal: stmt.quote,
-    interpretation: classifySentiment(stmt.quote),
-    topic: stmt.topic,
+    interpretation: stmt.interpretation ?? 'neutral',
+    topic: stmt.topic ?? '',
   }));
 
-  // ── 2b. Pattern detection ─────────────────────────────────────────────────
+  // ── 2. Signals (already detected semantically by LLM) ──────────────────────
+  const corrections = signals.corrections ?? [];
+  const recaps = signals.recapChecks ?? [];
+  const verbosityInstances = signals.verbosityRequests ?? [];
+  const scaleConcerns = signals.scaleConcerns ?? [];
 
-  const CORRECTION_TRIGGERS = ["that's not right", "no, actually", "that's the problem", "they are not"];
-  const CORRECTION_EXCLUDES = ["it's my example", "let me give you", "mainly focused on", "not a good strategy"];
-
-  const corrections = questions.filter(q =>
-    q.direction === 'interviewer_to_candidate' &&
-    CORRECTION_TRIGGERS.some(t => q.quote.toLowerCase().includes(t)) &&
-    !CORRECTION_EXCLUDES.some(e => q.quote.toLowerCase().includes(e)),
-  );
-
-  const RECAP_TRIGGERS = ["so what you mean is", "let me recap", "did i understand correctly", "so to summarize"];
-  const recaps = questions.filter(q =>
-    q.direction === 'interviewer_to_candidate' &&
-    RECAP_TRIGGERS.some(t => q.quote.toLowerCase().includes(t)),
-  );
-
-  const VERBOSITY_TRIGGERS = [
-    "be concise", "keep it brief", "be more concise",
-    "keep it time-bound", "we don't have much time so please be quick",
-  ];
-  const verbosityInstances = questions.filter(q =>
-    q.direction === 'interviewer_to_candidate' &&
-    VERBOSITY_TRIGGERS.some(t => q.quote.toLowerCase().includes(t)),
-  );
-
-  const AI_OVERRELIANCE_TRIGGERS = ["90% of my time", "i rely on", "i would ask my ai agent"];
-  const hasAiOverreliance = questions.some(q =>
-    AI_OVERRELIANCE_TRIGGERS.some(t => (q.answer_summary ?? '').toLowerCase().includes(t)),
-  );
-
-  const teamScalePattern = /\b(\d[\d,]*)\s*(plants?|countries|sites?|locations?|team members?|people|employees?)\b/i;
-  const teamScaleMatch = questions
-    .filter(q => q.direction === 'interviewer_to_candidate')
-    .find(q => teamScalePattern.test(q.answer_summary));
-
-  // ── 2c. Cross-validation: downgrade answer_quality if neg sentiment on same topic ──
-  const adjustedQuestions = questions.map((q, i) => {
-    if (q.answer_quality === 'detailed_with_examples' && q.direction === 'interviewer_to_candidate') {
-      const hasNegSentiment = classifiedSentiment.some(
-        s => s.interpretation === 'negative' && topicsOverlap(s.topic, q.topic),
-      );
-      if (hasNegSentiment) {
-        log.push(`Q[${i}] "${q.topic}": downgraded detailed_with_examples → correct_but_surface (neg sentiment)`);
-        return { ...q, answer_quality: 'correct_but_surface' as AnswerQuality };
-      }
-    }
-    return q;
-  });
-
-  // ── 2d. Question classification ────────────────────────────────────────────
-  const interviewerQs = adjustedQuestions.filter(q => q.direction === 'interviewer_to_candidate');
-  const candidateQs = adjustedQuestions.filter(q => q.direction === 'candidate_to_interviewer');
+  // ── 3. Question classification ─────────────────────────────────────────────
+  const interviewerQs = questions.filter(q => q.direction === 'interviewer_to_candidate');
+  const candidateQs = questions.filter(q => q.direction === 'candidate_to_interviewer');
   const technicalQs = interviewerQs.filter(q => !isSoftTopic(q.topic));
 
-  const total = adjustedQuestions.length;
+  const total = questions.length;
   const iRatio = total > 0 ? interviewerQs.length / total : 0;
   const cRatio = total > 0 ? candidateQs.length / total : 0;
   const interviewFormat: 'standard' | 'discovery' | 'mixed' =
     iRatio > 0.6 ? 'standard' : cRatio > 0.4 ? 'discovery' : 'mixed';
 
-  // ── 2e. Topic-to-broker-skill mapping ─────────────────────────────────────
-  const requiredSkills = parseRequiredSkills(brokerRequest ?? '');
+  // ── 4. Broker requirement coverage (via LLM-assigned coversRequirements) ──
+  // Build map of req-id → best answer quality observed across all questions that tested it.
+  const requirementBestQuality: Record<string, AnswerQuality> = {};
+  for (const q of technicalQs) {
+    const covered = q.coversRequirements ?? [];
+    for (const reqId of covered) {
+      const existing = requirementBestQuality[reqId];
+      if (!existing || QUALITY_SCORES[q.answer_quality] > QUALITY_SCORES[existing]) {
+        requirementBestQuality[reqId] = q.answer_quality;
+      }
+    }
+  }
 
   const coveredRequirements: string[] = [];
   const missingRequirements: string[] = [];
   const notAssessedRequirements: string[] = [];
 
-  for (const skill of requiredSkills) {
-    const mapped = technicalQs.filter(q => questionMatchesSkill(q, skill));
-    if (mapped.length === 0) {
-      notAssessedRequirements.push(skill);
+  for (const req of parsedRequirements) {
+    const quality = requirementBestQuality[req.id];
+    if (!quality) {
+      notAssessedRequirements.push(req.skill);
+    } else if (quality === 'detailed_with_examples' || quality === 'correct_but_surface') {
+      coveredRequirements.push(req.skill);
     } else {
-      const best = mapped.reduce((b, q) =>
-        QUALITY_SCORES[q.answer_quality] > QUALITY_SCORES[b.answer_quality] ? q : b,
-      ).answer_quality;
-      if (best === 'detailed_with_examples' || best === 'correct_but_surface') {
-        coveredRequirements.push(skill);
-      } else {
-        missingRequirements.push(skill);
-      }
+      missingRequirements.push(req.skill);
     }
   }
 
-  // ── 2f. Skill classification ───────────────────────────────────────────────
-  // Best quality per topic across all technical questions
+  const requiredSkills = parsedRequirements.map(r => r.skill);
+
+  // ── 5. Skill classification (from question topics, no dictionary) ─────────
+  // Group by topic, take best quality per topic — works for any domain.
   const topicBest: Record<string, AnswerQuality> = {};
   for (const q of technicalQs) {
     const existing = topicBest[q.topic];
@@ -330,7 +267,7 @@ export function processExtraction(
     .map(s => s.skill)
     .filter(s => !confirmedSkills.includes(s) && !unconfirmedSkills.includes(s));
 
-  // ── 2g. Scoring ────────────────────────────────────────────────────────────
+  // ── 6. Scoring ─────────────────────────────────────────────────────────────
   const cvMatchScore =
     (confirmedSkills.length + unconfirmedSkills.length) > 0
       ? Math.round(confirmedSkills.length / (confirmedSkills.length + unconfirmedSkills.length) * 100)
@@ -342,21 +279,27 @@ export function processExtraction(
       : 0;
 
   const brokerCoveragePercent =
-    requiredSkills.length > 0
-      ? Math.round((coveredRequirements.length + missingRequirements.length) / requiredSkills.length * 100)
+    parsedRequirements.length > 0
+      ? Math.round((coveredRequirements.length + missingRequirements.length) / parsedRequirements.length * 100)
       : 0;
 
   const brokerCoverageReliability: 'comprehensive' | 'partial' | 'minimal' =
     brokerCoveragePercent >= 70 ? 'comprehensive' :
     brokerCoveragePercent >= 40 ? 'partial' : 'minimal';
 
-  // brokerProxyScore when nothing was formally covered yet
+  // brokerProxyScore: fallback for when nothing was formally covered.
+  // Compare candidate's declared/mentioned skills against required skills via
+  // case-insensitive substring overlap (domain-agnostic; no keyword dictionary).
   let brokerProxyScore: number | undefined;
-  if (coveredRequirements.length === 0 && requiredSkills.length > 0) {
-    const declaredMatching = requiredSkills.filter(skill =>
-      candidateSkills.some(s => matchesSkill(s.skill, skill)),
-    );
-    brokerProxyScore = Math.round(declaredMatching.length / requiredSkills.length * 100);
+  if (coveredRequirements.length === 0 && parsedRequirements.length > 0) {
+    const declaredMatching = parsedRequirements.filter(req => {
+      const needle = req.skill.toLowerCase();
+      return candidateSkills.some(s => {
+        const hay = s.skill.toLowerCase();
+        return hay.includes(needle) || needle.includes(hay);
+      });
+    });
+    brokerProxyScore = Math.round(declaredMatching.length / parsedRequirements.length * 100);
   }
 
   const scoredQs = technicalQs.filter(q => q.answer_quality !== 'n/a_reverse_question');
@@ -371,9 +314,16 @@ export function processExtraction(
   answerQualityScore = Math.max(0, Math.min(100, answerQualityScore));
 
   const scopeCoverageScore = brokerCoveragePercent;
-  const score = Math.round(answerQualityScore * (0.4 + 0.6 * scopeCoverageScore / 100));
 
-  // ── 2h. Technical level ───────────────────────────────────────────────────
+  // Score formula:
+  //   - With broker requirements: weighted blend of answer quality × scope coverage.
+  //   - Without requirements (or broker_request absent): score = answerQualityScore,
+  //     because there is no scope to discount against.
+  const score = parsedRequirements.length === 0
+    ? answerQualityScore
+    : Math.round(answerQualityScore * (0.4 + 0.6 * scopeCoverageScore / 100));
+
+  // ── 7. Technical level ────────────────────────────────────────────────────
   const vagueCount = scoredQs.filter(q =>
     q.answer_quality === 'vague_or_generic' || q.answer_quality === 'not_answered',
   ).length;
@@ -384,7 +334,7 @@ export function processExtraction(
     (confirmedSkills.length >= 3 && unconfirmedSkills.length <= confirmedSkills.length) ? 'Senior' :
     'Middle';
 
-  // ── 2i. Weaknesses (three sources only) ──────────────────────────────────
+  // ── 8. Weaknesses (built from structured LLM signals) ──────────────────────
   const weaknesses: string[] = [];
 
   // Source A: surface-level confirmations
@@ -394,73 +344,85 @@ export function processExtraction(
     }
   }
 
-  // Source B: patterns
+  // Source B: behavioral signals (semantic, from LLM)
   if (verbosityInstances.length > 0) {
     weaknesses.push('Verbosity: interviewer asked to be more concise');
   }
   for (const c of corrections) {
-    weaknesses.push(`${c.topic}: corrected by interviewer`);
+    const topic = c.topic ?? 'unspecified topic';
+    weaknesses.push(`${topic}: corrected by interviewer`);
   }
   if (recaps.length > 0) {
     weaknesses.push('Unclear answer structure — interviewer recap needed');
   }
 
-  // Source C: negative sentiment
+  // Source C: negative sentiment from interviewer (semantic classification)
   for (const s of classifiedSentiment) {
     if (s.interpretation === 'negative') {
       weaknesses.push(`Interviewer concern: "${s.signal}"`);
     }
   }
 
-  // ── 2j. Strengths ─────────────────────────────────────────────────────────
+  // ── 9. Strengths ──────────────────────────────────────────────────────────
+  // Trust the LLM's sentiment-aware answer_quality (no cross-validation needed —
+  // the LLM already downgrades detailed answers when interviewer reacted negatively).
   const strengths: string[] = [];
   for (const q of technicalQs) {
     if (q.answer_quality === 'detailed_with_examples') {
-      const hasNegSentiment = classifiedSentiment.some(
-        s => s.interpretation === 'negative' && topicsOverlap(s.topic, q.topic),
-      );
-      if (!hasNegSentiment) {
-        strengths.push(`${q.topic}: demonstrated detailed knowledge with concrete examples`);
-      }
+      strengths.push(`${q.topic}: demonstrated detailed knowledge with concrete examples`);
     }
   }
 
-  // ── Risks ─────────────────────────────────────────────────────────────────
+  // ── 10. Risks (from LLM-detected red flags + scale concerns) ──────────────
   const risks: string[] = [];
-  if (teamScaleMatch) {
-    risks.push('Team scale gap: candidate experience may not match role requirements');
+  for (const sc of scaleConcerns) {
+    const reason = sc.reason ?? 'candidate experience scale may not match role requirements';
+    risks.push(`Scale concern: ${reason}`);
   }
-  if (hasAiOverreliance) {
-    risks.push('Potential AI over-reliance: candidate mentioned AI tools as primary method');
+  for (const flag of redFlags) {
+    risks.push(redFlagToRisk(flag));
   }
 
-  // ── 2k. Language assessment ───────────────────────────────────────────────
+  // ── 11. Language assessment ───────────────────────────────────────────────
   let languageAssessment: ProcessedExtraction['languageAssessment'] | undefined;
   const hasLangReq = /english|language|fluent|native|proficiency/i.test(brokerRequest ?? '');
 
   if (hasLangReq) {
     const obs = step1.languageObservation ?? { topFillers: [], grammarPatterns: [], comprehensionIssues: [], nervousnessSignals: [] };
     const totalFillers = obs.topFillers.reduce((sum, f) => sum + (f.count ?? 0), 0);
-    const hasGrammar = obs.grammarPatterns.length > 0;
+    const grammarCount = obs.grammarPatterns.length;
+    const comprehensionCount = obs.comprehensionIssues.length;
 
+    // Unintelligible speech (comprehensionIssues) is the strongest signal —
+    // even a single garbled sentence puts the candidate below "fluent".
     const verdict: 'meets_requirement' | 'borderline' | 'below_requirement' =
-      totalFillers > 25 || (totalFillers > 15 && hasGrammar) ? 'below_requirement' :
-      totalFillers > 15 || hasGrammar ? 'borderline' : 'meets_requirement';
+      comprehensionCount >= 3 || totalFillers > 25 || (totalFillers > 15 && grammarCount > 0)
+        ? 'below_requirement' :
+      comprehensionCount >= 1 || totalFillers > 15 || grammarCount > 0
+        ? 'borderline' :
+        'meets_requirement';
 
-    const demonstratedLevel = verdict === 'meets_requirement' ? 'fluent' : 'borderline';
+    const demonstratedLevel =
+      verdict === 'meets_requirement' ? 'fluent' :
+      verdict === 'borderline' ? 'borderline' : 'below fluent';
+
+    const evidenceParts: string[] = [];
+    if (comprehensionCount > 0) evidenceParts.push(`${comprehensionCount} comprehension/intelligibility issue${comprehensionCount > 1 ? 's' : ''}`);
+    if (totalFillers > 0) evidenceParts.push(`${totalFillers} filler occurrences`);
+    if (grammarCount > 0) evidenceParts.push(`${grammarCount} recurring grammar pattern${grammarCount > 1 ? 's' : ''}`);
 
     languageAssessment = {
       requiredLevel: 'Fluent',
       demonstratedLevel,
       verdict,
-      evidence: totalFillers > 0
-        ? `${totalFillers} filler occurrences detected${hasGrammar ? ', recurring grammar patterns noted' : ''}`
+      evidence: evidenceParts.length > 0
+        ? evidenceParts.join(', ')
         : 'No significant language issues observed',
     };
   }
 
   // ── Output questions ──────────────────────────────────────────────────────
-  const outputQuestions = adjustedQuestions.map(q => ({
+  const outputQuestions = questions.map(q => ({
     question: q.quote,
     topic: q.topic,
     candidateHandled: mapCandidateHandled(q.answer_quality),
@@ -471,6 +433,7 @@ export function processExtraction(
   console.log('[middleware] processExtraction', {
     interviewFormat,
     technicalLevel,
+    parsedRequirements: parsedRequirements.length,
     confirmedSkills: confirmedSkills.length,
     unconfirmedSkills: unconfirmedSkills.length,
     coveredRequirements,
@@ -481,6 +444,7 @@ export function processExtraction(
     scopeCoverageScore,
     strengths: strengths.length,
     weaknesses: weaknesses.length,
+    risks: risks.length,
     changes: log,
   });
 
@@ -517,6 +481,15 @@ export function processExtraction(
 
 export function buildStep2Input(processed: ProcessedExtraction, brokerRequest?: string): string {
   const lines: string[] = [];
+
+  if (processed.truncation?.wasTruncated) {
+    const t = processed.truncation;
+    lines.push('=== TRANSCRIPT TRUNCATION (MUST mention in overallAssessment) ===');
+    lines.push(`Original transcript: ${t.originalChars.toLocaleString()} chars`);
+    lines.push(`Analysed: ${t.finalChars.toLocaleString()} chars (head + tail only)`);
+    lines.push(`Dropped: ${t.droppedChars.toLocaleString()} chars (~${t.droppedPercent}% of middle section)`);
+    lines.push('');
+  }
 
   lines.push('=== CLASSIFICATION RESULTS (pre-calculated by code — do NOT change) ===');
   lines.push(`Confirmed skills: ${processed.confirmedSkills.join(', ') || 'none'}`);

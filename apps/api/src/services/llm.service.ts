@@ -21,9 +21,24 @@ import {
   type ProcessedExtraction,
 } from './extraction.middleware';
 import { describeError } from '../utils/errorLogger';
+import { truncateTranscript, type TruncationResult } from '../utils/transcriptUtils';
 
 function stripJsonFences(raw: string): string {
   return raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+}
+
+// Inline system-prompt note appended when the transcript had to be truncated.
+// The LLM is required to surface this in the final overallAssessment so the
+// recruiter knows part of the conversation was not analysed.
+function buildTruncationSystemNote(t: TruncationResult): string {
+  return `
+
+TRANSCRIPT TRUNCATION NOTICE:
+The transcript was too long to fit token limits. ~${t.droppedPercent}% of the middle section was omitted (kept the beginning and the end). Original length: ${t.originalChars.toLocaleString()} chars; analysed: ${t.finalChars.toLocaleString()} chars.
+
+You MUST mention this limitation explicitly at the start of overallAssessment, e.g.:
+"Note: ~${t.droppedPercent}% of the transcript (middle section) was not analysed due to length limits — assessment is based on the opening and closing portions only."
+Then continue with the normal assessment.`;
 }
 
 export async function analyzeInterview(
@@ -40,10 +55,21 @@ export async function analyzeInterview(
     return analyzeTechnicalInterview(transcript, meta, options);
   }
 
-  // Manager call — single step (unchanged)
-  const systemPrompt = buildSystemPrompt(meta) + '\n\n' + MANAGER_CALL_JSON_SCHEMA;
+  // Manager call — single step
+  const truncation = truncateTranscript(transcript);
+  if (truncation.wasTruncated) {
+    console.log('[stage:llm] manager_call transcript truncated', {
+      originalChars: truncation.originalChars,
+      droppedChars: truncation.droppedChars,
+      droppedPercent: truncation.droppedPercent,
+    });
+  }
+
+  const systemPrompt = buildSystemPrompt(meta)
+    + '\n\n' + MANAGER_CALL_JSON_SCHEMA
+    + (truncation.wasTruncated ? buildTruncationSystemNote(truncation) : '');
   const userMessage = buildUserMessage(
-    transcript,
+    truncation.text,
     options?.cvText,
     options?.brokerRequest,
     options?.similarCases
@@ -91,16 +117,25 @@ async function analyzeTechnicalInterview(
   }
 ): Promise<CandidateAnalysis> {
 
-  // ── Step 1: extraction + pattern scan ──────────────────────
+  // ── Step 1: extraction + domain judgment (LLM does the heavy lifting) ─────
   console.log('[stage:llm] technical step 1 — extraction start');
+
+  const truncation = truncateTranscript(transcript);
+  if (truncation.wasTruncated) {
+    console.log('[stage:llm] technical transcript truncated', {
+      originalChars: truncation.originalChars,
+      droppedChars: truncation.droppedChars,
+      droppedPercent: truncation.droppedPercent,
+    });
+  }
 
   const step1Response = await llmClient.chat.completions.create({
     model: LLM_MODEL,
     messages: [
-      { role: 'system', content: buildTechnicalStep1Prompt() },
-      { role: 'user', content: buildStep1UserMessage(transcript) },
+      { role: 'system', content: buildTechnicalStep1Prompt(options?.brokerRequest) },
+      { role: 'user', content: buildStep1UserMessage(truncation.text, options?.brokerRequest) },
     ],
-    max_completion_tokens: 5000,
+    max_completion_tokens: 8000,
   });
 
   const step1Choice = step1Response.choices[0];
@@ -124,14 +159,19 @@ async function analyzeTechnicalInterview(
   console.log('[stage:llm] technical step 1 done, starting middleware + step 2');
 
   const processed = processExtraction(step1Parsed, options?.cvText, options?.brokerRequest, meta);
+  if (truncation.wasTruncated) {
+    processed.truncation = truncation;
+  }
 
   // ── Step 2: LLM writes human-readable assessment ────────────────────────
   const step2UserContent = buildStep2Input(processed, options?.brokerRequest);
+  const step2SystemPrompt = buildTechnicalStep2Prompt(meta)
+    + (truncation.wasTruncated ? buildTruncationSystemNote(truncation) : '');
 
   const step2Response = await llmClient.chat.completions.create({
     model: LLM_MODEL,
     messages: [
-      { role: 'system', content: buildTechnicalStep2Prompt(meta) },
+      { role: 'system', content: step2SystemPrompt },
       { role: 'user', content: step2UserContent },
     ],
     max_completion_tokens: 3000,

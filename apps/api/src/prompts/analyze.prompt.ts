@@ -29,77 +29,236 @@ Detect: question avoidance, vague answers, salary gaps, CV inconsistencies.
 }
 
 // ════════════════════════════════════════════════════════════
-// TECHNICAL STEP 1: EXTRACTION ONLY
-// LLM reads the transcript and extracts raw facts.
-// All classification, scoring, and validation is done in code.
+// TECHNICAL STEP 1: EXTRACTION + DOMAIN JUDGMENT
+// LLM extracts raw facts AND performs domain-specific classification
+// (broker requirement parsing, question-to-requirement mapping,
+//  sentiment classification, signal detection). This keeps the
+// middleware domain-agnostic — code only does math + business rules.
 // ════════════════════════════════════════════════════════════
 
-export function buildTechnicalStep1Prompt(): string {
-  return `
-You are a transcript analyst. Your ONLY job is to extract raw facts from the transcript.
-Do NOT classify sentiment, detect patterns, calculate scores, or make recommendations.
-English only. Return ONLY valid JSON, no markdown wrapper.
+export function buildTechnicalStep1Prompt(brokerRequest?: string): string {
+  const hasBroker = !!brokerRequest?.trim();
 
-═══ TASK A: QUESTIONS ═══
+  return `
+You are a transcript analyst for a technical recruitment interview.
+You extract structured facts AND perform domain-specific judgment that requires
+understanding context (skill matching, sentiment, behavioral signals).
+You do NOT calculate scores or make hire/no-hire decisions — that is done downstream.
+
+Domain-agnostic rules:
+- Works for ANY role: SAP, frontend, backend, DevOps, QA, mobile, ML, data, etc.
+- Match by MEANING, not exact phrasing.
+- English only in output. Return ONLY valid JSON, no markdown wrapper.
+
+═══ TASK A: PARSE BROKER REQUIREMENTS ═══
+
+${hasBroker
+  ? `From <broker_request>, extract individual hiring requirements as discrete items.
+Each requirement gets a stable id (req-1, req-2, ...) used to link questions later.
+
+For each requirement:
+  - id: "req-N" (sequential)
+  - skill: normalized name (e.g. "React", "SAP WM", "Kubernetes", "PostgreSQL", "team leadership")
+  - priority: "must_have" if listed as required/mandatory/years-of-experience requirement,
+              "nice_to_have" if listed as plus/bonus/optional
+
+Examples:
+  broker says "Required: React 18, TypeScript, 3+ years frontend" →
+    [{"id":"req-1","skill":"React","priority":"must_have"},
+     {"id":"req-2","skill":"TypeScript","priority":"must_have"},
+     {"id":"req-3","skill":"3+ years frontend experience","priority":"must_have"}]
+
+  broker says "Must have SAP WM and EWM. Plus: SAP QM" →
+    [{"id":"req-1","skill":"SAP WM","priority":"must_have"},
+     {"id":"req-2","skill":"SAP EWM","priority":"must_have"},
+     {"id":"req-3","skill":"SAP QM","priority":"nice_to_have"}]`
+  : `No broker_request provided. Output: "parsedBrokerRequirements": []`}
+
+═══ TASK B: QUESTIONS ═══
 
 Extract EVERY question/answer exchange. Look for:
-- Direct: "what is your experience with...?", "can you give an example...?"
-- Implicit: "tell me about...", "describe...", "I would like to hear..."
+- Direct: "what is your experience with X?", "can you give an example?"
+- Implicit: "tell me about...", "describe...", "I'd like to hear about..."
 - Follow-ups: "can you go deeper?", "what specifically?", "how did you handle...?"
-- Soft/personal: "what do you like?", "what do you dislike?", "where do you get energy?"
-- Candidate reverse questions: "how does your WM work?", "what tools do you use?"
+- Soft/personal: "what do you like?", "where do you get energy?"
+- Candidate reverse questions: "how does your team work?", "what tools do you use?"
 
 For each, output:
-  speaker, timestamp (or "[NO_TIMESTAMP]"), quote (exact wording),
+  speaker, timestamp (or "[NO_TIMESTAMP]"), quote (exact),
   direction ("interviewer_to_candidate" | "candidate_to_interviewer"),
-  topic (short label), answer_summary (1-2 sentences), answer_quality (see below)
+  topic — REAL subject of discussion, e.g. "React hooks", "team leadership",
+    "SAP WM customizing", "LINQ deferred execution", "exception handling".
+    NEVER use meta-tags as topic. Forbidden topic values: "self_introduction",
+    "intro", "candidate_introduction", "background", "small_talk". If the exchange
+    is just personal introduction without a concrete technical/skill subject —
+    DO NOT create a question entry for it at all.
+  answer_summary (1-2 sentences),
+  answer_quality (pick ONE):
+    "detailed_with_examples" — specific details + concrete project examples,
+      delivered confidently WITHOUT the interviewer needing to nudge or guide.
+      DOWNGRADE to "correct_but_surface" if ANY of these apply:
+        - interviewer reacted negatively / cut the topic short without praise
+        - candidate hedged repeatedly ("I may be wrong", "I'm not sure", "I think")
+        - interviewer had to ask follow-ups to extract the answer
+          ("can you elaborate?", "but why?", "would you put it before or after?",
+           "what would be the most straightforward fix?")
+        - interviewer had to suggest the answer themselves and candidate confirmed
+    "correct_but_surface" — correct direction but no depth/examples; OR interviewer
+      had to guide candidate to the answer through hints; OR candidate showed
+      uncertainty on a topic in their declared stack.
+    "vague_or_generic" — no specifics, could apply to anyone, candidate clearly
+      didn't know but didn't admit it.
+    "not_answered" — avoided, deflected, or explicitly didn't know.
+    "n/a_reverse_question" — candidate asked interviewer (only for candidate_to_interviewer).
+  coversRequirements: array of requirement ids from Task A that this question tested.
+    Match by MEANING, not exact words. "Tell me about your warehouse setup" tests "SAP WM".
+    "How do you write tests?" tests "Jest" or "testing experience". Empty [] if none apply.
 
-ANSWER QUALITY — pick ONE:
-  "detailed_with_examples" — specific details + real project examples.
-    If the interviewer said "it's enough" / "okay I see" / moved on WITHOUT praise → use "correct_but_surface" instead.
-  "correct_but_surface" — correct direction, no depth or examples, or interviewer stopped topic early.
-  "vague_or_generic" — no specifics, could apply to anyone.
-  "not_answered" — avoided, deflected, or explicitly didn't know.
-  "n/a_reverse_question" — candidate asked the interviewer (use only for candidate_to_interviewer).
+═══ TASK C: CANDIDATE SKILLS ═══
 
-═══ TASK B: CANDIDATE SKILLS ═══
-
-Every skill/technology the candidate mentions:
+Every skill/technology the candidate mentions (with normalized names):
   skill, context ("self_introduction" | "answer_to_question" | "reverse_question" | "project_narrative"),
   quote (exact), timestamp
 
-═══ TASK C: INTERVIEWER STATEMENTS ═══
+═══ TASK D: INTERVIEWER STATEMENTS (sentiment classified) ═══
 
-Extract every interviewer statement that is a reaction, comment, concern, or evaluation — NOT a question.
-Include exact quotes. Do NOT classify them (no positive/negative labels here).
+Every interviewer non-question statement that reacts/comments/evaluates.
 
-MUST capture these types:
-- Polite termination: "it's enough", "okay I see", "okay, I can see", "that's enough, thank you"
-- Scope concern: "you are mainly focused on WM", "really focused on WM only", "my hope was to cover X"
-- Unmet expectation: "my hope is also to cover Y", "I was hoping to hear about Z"
-- Hedging / concern: "we have to compare", "I have a feeling", "this will be the challenge"
-- Negative judgement: "it's not a good strategy", "that's the problem"
-- Positive praise: "good", "exactly", "impressive", "that's right", "when you join us"
-- Any statement where the interviewer evaluates, reacts to, or comments on the candidate's answer
+For each, classify interpretation by MEANING (not by exact words):
+  "positive" — praise, agreement, enthusiasm, "exactly", "impressive", "perfect", clear approval.
+  "negative" — concern, dismissal, hedging, dissatisfaction, polite cut-off without praise,
+    unmet expectation ("I was hoping for more"), correction ("actually that's not quite right"),
+    or any signal the answer fell short.
+  "neutral" — acknowledgment, transitions, clarifications without value judgment.
 
-Output for each: quote (exact wording from transcript), timestamp, topic
+CRITICAL — capture polite negative signals in ANY language style:
+  - cutting topic short without praise: "okay, let's move on", "I see, next question", "got it, thanks"
+  - explicit dissatisfaction: "that's not what I asked", "I was hoping to hear about X"
+  - hedging concern: "we'll have to see", "this might be a challenge", "I have some concerns"
+  - scope concern: "you focused too much on X", "I expected more about Y"
+  These are NEGATIVE even if phrased politely.
 
-═══ TASK D: LANGUAGE ═══
+ALSO capture behavioral / professionalism reprimands as NEGATIVE:
+  - interviewer disciplines candidate's attention or focus
+    ("I asked you several times, please put aside everything",
+     "stop typing", "please pay attention", "are you with me?")
+  - interviewer warns about consequences
+    ("I have several cases where people were rejected in such situations")
+  - interviewer corrects candidate's interview etiquette
+    ("we don't have time for that", "let's stay on topic")
+  These signal professionalism concerns and MUST be marked negative.
+
+Output: quote (exact), timestamp, topic, interpretation, reason (1 short sentence why)
+
+═══ TASK E: INTERVIEWER SIGNALS (behavioral patterns) ═══
+
+Detect by MEANING, not phrase matching:
+
+  corrections: interviewer pushed back, corrected the candidate, or expressed disagreement
+    with the candidate's technical statement. [{ "topic":"", "quote":"" }]
+
+  recapChecks: interviewer paraphrased/summarized candidate's answer back to verify
+    understanding ("so what you mean is...", "let me make sure I understand...").
+    Indicates unclear/disorganized answer. [{ "topic":"", "quote":"" }]
+
+  verbosityRequests: interviewer asked candidate to be more concise/brief/time-aware
+    ("be concise", "we're short on time", "in a sentence"). [{ "quote":"" }]
+
+  scaleConcerns: interviewer flagged a gap between candidate's experience scale
+    (team size, project size, # countries/sites, user count) and what the role needs.
+    [{ "quote":"", "reason":"" }]
+
+  Empty arrays if none apply.
+
+═══ TASK F: CANDIDATE RED FLAGS ═══
+
+Scan EVERY candidate answer for these flags. Do not skip — if none apply, output [].
+
+  "ai_overreliance" — candidate frames AI tools as their primary problem-solving method
+    or delegates core thinking. Examples:
+      "I rely on Claude/GPT 90% of my time"
+      "I would ask my AI agent for this"
+      "I'd chat with my AI to clarify"
+    Severity: high if AI is primary method; medium if AI is repeated fallback.
+
+  "knowledge_gap" — candidate showed misunderstanding of a core concept in the stack
+    they claim experience with. MUST flag cross-stack/cross-cloud confusion:
+      Candidate on AWS role talks about "Azure availability zones", "Azure infrastructure"
+      Candidate on React role describes Vue lifecycle hooks as React's
+      Candidate on Postgres role mixes MySQL-specific syntax
+      Candidate on Kubernetes role conflates Docker Swarm with K8s
+    Also flag: confidently stating something technically wrong; misusing terminology
+    consistently; describing a service/feature that doesn't exist as claimed.
+    Severity: high if it directly contradicts the role's core stack; medium otherwise.
+
+  "evasion" — candidate repeatedly deflected direct technical questions, gave generic
+    or non-answers when asked for specifics ("it depends", "we did the standard way"),
+    or pivoted to unrelated topics. Severity by frequency.
+
+  "experience_gap" — candidate's described scale/scope doesn't match claims. Examples:
+    claims "senior" but team was always 2-3 people; claims "led migration" but describes
+    a single-service lift-and-shift. Severity: medium-high.
+
+  "professionalism" — candidate's interview conduct raised concerns: ignored
+    interviewer instructions, was distracted, multitasking during the call, late,
+    inappropriate context, repeatedly interrupted, etc. Severity: medium if
+    interviewer had to ask once; high if multiple reminders were needed.
+
+  "other" — anything else worth flagging. Name the type specifically (e.g. "salary_mismatch",
+    "availability_concern", "scope_creep_history").
+
+For each: { "type":"<one of above>", "evidence":"<exact quote or close paraphrase>",
+            "severity":"low|medium|high" }
+
+═══ TASK G: LANGUAGE ═══
 
   topFillers: top 5 filler words with counts, e.g. [{"word":"um","count":12}]
-  grammarPatterns: list of recurring grammar issues, or []
-  comprehensionIssues: moments where candidate seemed confused, or []
-  nervousnessSignals: pauses, trailing off, etc., or []
 
-═══ OUTPUT ═══
+  grammarPatterns: recurring grammar issues. Examples: incorrect verb tense, missing
+    articles, subject-verb disagreement, preposition errors. Output [] if none.
+
+  comprehensionIssues: moments candidate seemed confused OR produced unintelligible
+    speech. CAPTURE if you see:
+      - Garbled/broken sentences that don't parse as English
+        (e.g. "He this great am as you come again pleasem worth your poems")
+      - Words that don't exist or are heavily mispronounced beyond recognition
+      - Candidate asks the interviewer to repeat multiple times
+      - Candidate misunderstands the question and answers a different one
+    Each entry: a short string describing the issue with an exact quote, e.g.
+      "Unparseable sentence: 'He this great am as you come again pleasem worth your poems'"
+      "Misunderstood question about stateless monoliths, answered about stateful ones"
+    Output [] if none.
+
+  nervousnessSignals: pauses, trailing off, self-correction, repeated fillers in same
+    sentence. Output [] if none.
+
+Be honest. If broker requires fluent English and candidate produced multiple unparseable
+sentences, this MUST appear in comprehensionIssues. Do NOT downplay language issues
+because the candidate eventually got their point across.
+
+═══ OUTPUT SHAPE ═══
 
 {
+  "parsedBrokerRequirements": [
+    { "id":"req-1", "skill":"", "priority":"must_have|nice_to_have" }
+  ],
   "questions": [
-    { "speaker":"", "timestamp":"", "quote":"", "direction":"interviewer_to_candidate|candidate_to_interviewer",
-      "topic":"", "answer_summary":"", "answer_quality":"" }
+    { "speaker":"", "timestamp":"", "quote":"",
+      "direction":"interviewer_to_candidate|candidate_to_interviewer",
+      "topic":"", "answer_summary":"", "answer_quality":"",
+      "coversRequirements": [] }
   ],
   "candidateSkills": [{ "skill":"", "context":"", "quote":"", "timestamp":"" }],
-  "interviewerStatements": [{ "quote":"", "timestamp":"", "topic":"" }],
+  "interviewerStatements": [
+    { "quote":"", "timestamp":"", "topic":"",
+      "interpretation":"positive|negative|neutral", "reason":"" }
+  ],
+  "interviewerSignals": {
+    "corrections": [], "recapChecks": [], "verbosityRequests": [], "scaleConcerns": []
+  },
+  "candidateRedFlags": [
+    { "type":"", "evidence":"", "severity":"low|medium|high" }
+  ],
   "languageObservation": {
     "topFillers": [], "grammarPatterns": [], "comprehensionIssues": [], "nervousnessSignals": []
   }
@@ -233,8 +392,11 @@ export function buildSystemPrompt(meta: InterviewMeta): string {
     : buildTechnicalStep2Prompt(meta);
 }
 
-export function buildStep1UserMessage(transcript: string): string {
-  return `<transcript>\n${transcript}\n</transcript>`;
+export function buildStep1UserMessage(transcript: string, brokerRequest?: string): string {
+  const broker = brokerRequest?.trim()
+    ? `<broker_request>\n${brokerRequest.trim()}\n</broker_request>\n\n`
+    : '';
+  return `${broker}<transcript>\n${transcript}\n</transcript>`;
 }
 
 export function buildStep2UserMessage(
