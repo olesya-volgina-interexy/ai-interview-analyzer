@@ -45,6 +45,19 @@ function ItemList({ items, variant }: { items: string[]; variant: 'strength' | '
   );
 }
 
+const LANG_VERDICT_STYLE: Record<string, { bg: string; color: string; label: string }> = {
+  meets_requirement:  { bg: '#EAF3DE', color: '#27500A', label: 'Meets requirement' },
+  borderline:         { bg: '#FAEEDA', color: '#633806', label: 'Borderline' },
+  below_requirement:  { bg: '#FCEBEB', color: '#791F1F', label: 'Below requirement' },
+  not_assessed:       { bg: '#F1EFE8', color: '#5F5E5A', label: 'Not assessed' },
+};
+
+const SENTIMENT_STYLE: Record<string, { bg: string; color: string; dot: string }> = {
+  positive: { bg: '#EAF3DE', color: '#27500A', dot: '#639922' },
+  negative: { bg: '#FCEBEB', color: '#791F1F', dot: '#E24B4A' },
+  neutral:  { bg: '#F1EFE8', color: '#5F5E5A', dot: '#9A9893' },
+};
+
 export function TechnicalResult({ analysis }: { analysis: TechnicalAnalysis }) {
   const rec = REC_STYLE[analysis.recommendation] ?? { bg: '#F1EFE8', color: '#5F5E5A' };
 
@@ -101,6 +114,56 @@ export function TechnicalResult({ analysis }: { analysis: TechnicalAnalysis }) {
               <ItemList items={analysis.weaknesses} variant="weakness" />
             </div>
           </div>
+
+          {analysis.risks && analysis.risks.length > 0 && (
+            <div>
+              <SectionTitle>Risks & Red Flags</SectionTitle>
+              <ItemList items={analysis.risks} variant="risk" />
+            </div>
+          )}
+
+          {analysis.languageAssessment && (() => {
+            const la = analysis.languageAssessment;
+            const v = LANG_VERDICT_STYLE[la.verdict] ?? LANG_VERDICT_STYLE.not_assessed;
+            return (
+              <div>
+                <SectionTitle>Language Assessment</SectionTitle>
+                <div className="px-3 py-2.5 rounded-lg" style={{ background: v.bg }}>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-xs font-medium uppercase tracking-wide" style={{ color: v.color, letterSpacing: '0.06em' }}>
+                      {v.label}
+                    </span>
+                    <span className="text-xs" style={{ color: v.color, opacity: 0.85 }}>
+                      Required: {la.requiredLevel} · Demonstrated: {la.demonstratedLevel}
+                    </span>
+                  </div>
+                  <p className="text-xs leading-relaxed" style={{ color: v.color }}>{la.evidence}</p>
+                </div>
+              </div>
+            );
+          })()}
+
+          {analysis.interviewerSentiment && analysis.interviewerSentiment.length > 0 && (
+            <div>
+              <SectionTitle>Interviewer Reactions</SectionTitle>
+              <div className="flex flex-col gap-1.5">
+                {analysis.interviewerSentiment.map((s, i) => {
+                  const st = SENTIMENT_STYLE[s.interpretation] ?? SENTIMENT_STYLE.neutral;
+                  return (
+                    <div key={i} className="text-xs px-3 py-2 rounded-md leading-relaxed flex items-start gap-2" style={{ background: st.bg, color: st.color }}>
+                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: st.dot }} />
+                      <div className="flex-1">
+                        <span className="italic">"{s.signal}"</span>
+                        {s.topic && (
+                          <span className="ml-1.5 opacity-75">— {s.topic}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div>
             <SectionTitle>Reasoning</SectionTitle>
