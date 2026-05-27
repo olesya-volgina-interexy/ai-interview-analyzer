@@ -3,7 +3,7 @@ import type { InterviewMeta, CandidateAnalysis } from '@shared/schemas';
 import { CandidateAnalysisSchema } from '@shared/schemas';
 import { FinalResultAnalysisSchema } from '@shared/schemas';
 import type { FinalResultAnalysis } from '@shared/schemas';
-import { llmClient, LLM_MODEL } from './llm.client';
+import { llmClient, LLM_MODEL_EXTRACTION, LLM_MODEL_ASSESSMENT } from './llm.client';
 import {
   buildSystemPrompt,
   buildUserMessage,
@@ -21,7 +21,7 @@ import {
   type ProcessedExtraction,
 } from './extraction.middleware';
 import { describeError } from '../utils/errorLogger';
-import { truncateTranscript, type TruncationResult } from '../utils/transcriptUtils';
+import { truncateTranscript, EXTRACTION_MAX_TRANSCRIPT_CHARS, type TruncationResult } from '../utils/transcriptUtils';
 
 function stripJsonFences(raw: string): string {
   return raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
@@ -55,8 +55,9 @@ export async function analyzeInterview(
     return analyzeTechnicalInterview(transcript, meta, options);
   }
 
-  // Manager call — single step
-  const truncation = truncateTranscript(transcript);
+  // Manager call — single step. Needs the full transcript, so use the
+  // high-TPM extraction model with the large cap.
+  const truncation = truncateTranscript(transcript, EXTRACTION_MAX_TRANSCRIPT_CHARS);
   if (truncation.wasTruncated) {
     console.log('[stage:llm] manager_call transcript truncated', {
       originalChars: truncation.originalChars,
@@ -76,7 +77,7 @@ export async function analyzeInterview(
   );
 
   const response = await llmClient.chat.completions.create({
-    model: LLM_MODEL,
+    model: LLM_MODEL_EXTRACTION,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userMessage },
@@ -120,7 +121,7 @@ async function analyzeTechnicalInterview(
   // ── Step 1: extraction + domain judgment (LLM does the heavy lifting) ─────
   console.log('[stage:llm] technical step 1 — extraction start');
 
-  const truncation = truncateTranscript(transcript);
+  const truncation = truncateTranscript(transcript, EXTRACTION_MAX_TRANSCRIPT_CHARS);
   if (truncation.wasTruncated) {
     console.log('[stage:llm] technical transcript truncated', {
       originalChars: truncation.originalChars,
@@ -130,7 +131,7 @@ async function analyzeTechnicalInterview(
   }
 
   const step1Response = await llmClient.chat.completions.create({
-    model: LLM_MODEL,
+    model: LLM_MODEL_EXTRACTION,
     messages: [
       { role: 'system', content: buildTechnicalStep1Prompt(options?.brokerRequest) },
       { role: 'user', content: buildStep1UserMessage(truncation.text, options?.brokerRequest) },
@@ -169,7 +170,7 @@ async function analyzeTechnicalInterview(
     + (truncation.wasTruncated ? buildTruncationSystemNote(truncation) : '');
 
   const step2Response = await llmClient.chat.completions.create({
-    model: LLM_MODEL,
+    model: LLM_MODEL_ASSESSMENT,
     messages: [
       { role: 'system', content: step2SystemPrompt },
       { role: 'user', content: step2UserContent },
@@ -259,7 +260,7 @@ export async function analyzeFinalResult(
     + '\n\n' + FINAL_RESULT_JSON_SCHEMA;
 
   const response = await llmClient.chat.completions.create({
-    model: LLM_MODEL,
+    model: LLM_MODEL_ASSESSMENT,
     messages: [
       { role: 'system', content: systemPrompt },
       {
@@ -311,7 +312,7 @@ ${items.map((item, i) => `${i + 1}. ${item}`).join('\n')}`;
 
   try {
     const response = await llmClient.chat.completions.create({
-      model: LLM_MODEL,
+      model: LLM_MODEL_EXTRACTION,
       messages: [{ role: 'user', content: prompt }],
       max_completion_tokens: 1000,
     });
