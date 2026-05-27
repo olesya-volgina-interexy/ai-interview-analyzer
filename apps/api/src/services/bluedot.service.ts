@@ -29,8 +29,15 @@ export async function fetchTranscript(urlOrPdf: string): Promise<string> {
     return fetchPdfTranscript(url);
   }
 
-  if (isTextFile(url) || LINEAR_UPLOAD_RE.test(url)) {
-    return fetchRawText(url, LINEAR_UPLOAD_RE.test(url));
+  // Linear upload URLs end in a UUID, not ".pdf", so isPdfUrl() misses them.
+  // Fetch the bytes and detect the real type by content (magic bytes /
+  // Content-Type) instead of trusting the URL extension.
+  if (LINEAR_UPLOAD_RE.test(url)) {
+    return fetchUploadByContent(url, true);
+  }
+
+  if (isTextFile(url)) {
+    return fetchRawText(url);
   }
 
   if (BLUEDOT_PREVIEW_RE.test(url)) {
@@ -174,7 +181,12 @@ async function fetchPdfTranscript(url: string): Promise<string> {
     headers: { 'User-Agent': 'Mozilla/5.0' },
   });
 
-  const buffer = Buffer.from(res.data);
+  return parsePdfBuffer(Buffer.from(res.data), url);
+}
+
+// Parse + sanitize a downloaded PDF buffer. Shared by the .pdf-URL path and the
+// content-sniffing Linear-upload path.
+async function parsePdfBuffer(buffer: Buffer, url: string): Promise<string> {
   let parsed;
   try {
     parsed = await pdfParse(buffer);
@@ -189,16 +201,40 @@ async function fetchPdfTranscript(url: string): Promise<string> {
   return text;
 }
 
-// ── Fallback ──────────────────────────────────────────────────────────────
-
-async function fetchRawText(url: string, withLinearAuth = false): Promise<string> {
-  const headers: Record<string, string> = {};
-
-  if (withLinearAuth && process.env.LINEAR_API_KEY) {
+// Download bytes and decide PDF-vs-text by the actual content, not the URL
+// extension. Linear upload URLs have no extension, and the same endpoint can
+// serve PDF, txt, or docx. Detect PDFs by the "%PDF-" magic bytes (and the
+// Content-Type as a secondary signal) so they get proper text extraction
+// instead of being stored as raw binary.
+async function fetchUploadByContent(url: string, withLinearAuth: boolean): Promise<string> {
+  const headers: Record<string, string> = { 'User-Agent': 'Mozilla/5.0' };
+  if (withLinearAuth && process.env.LINEAR_API_KEY && LINEAR_UPLOAD_RE.test(url)) {
     headers['Authorization'] = process.env.LINEAR_API_KEY;
   }
 
-  const res = await axios.get(url, { timeout: 30_000, headers });
+  const res = await axios.get(url, {
+    responseType: 'arraybuffer',
+    timeout: 30_000,
+    headers,
+  });
+
+  const buffer = Buffer.from(res.data);
+  const contentType = String(res.headers['content-type'] ?? '').toLowerCase();
+  const isPdf =
+    buffer.subarray(0, 5).toString('latin1') === '%PDF-' ||
+    contentType.includes('application/pdf');
+
+  if (isPdf) {
+    return parsePdfBuffer(buffer, url);
+  }
+
+  return stripNullBytes(buffer.toString('utf-8'));
+}
+
+// ── Fallback ──────────────────────────────────────────────────────────────
+
+async function fetchRawText(url: string): Promise<string> {
+  const res = await axios.get(url, { timeout: 30_000 });
   const raw = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
   return stripNullBytes(raw);
 }
