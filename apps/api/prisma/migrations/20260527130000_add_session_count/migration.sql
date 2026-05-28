@@ -1,0 +1,1 @@
+ALTER TABLE "preparations" ADD COLUMN "sessionCount" INTEGER NOT NULL DEFAULT 1;

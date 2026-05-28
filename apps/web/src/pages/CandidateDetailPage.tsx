@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { candidatesApi } from '@/api/client';
+import { candidatesApi, preparationsApi } from '@/api/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CandidateModal } from '@/components/modals/CandidateModal';
-import { ArrowLeft, Users, CheckCircle, XCircle, Target, FileText } from 'lucide-react';
+import { ArrowLeft, Users, CheckCircle, XCircle, Target, FileText, CalendarDays } from 'lucide-react';
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', {
@@ -40,6 +40,12 @@ export function CandidateDetailPage() {
     queryFn: () => candidatesApi.getByName(decodeURIComponent(name)).then(r => r.data),
   });
 
+  const { data: prepStats } = useQuery({
+    queryKey: ['preparation-stats', name],
+    queryFn: () => preparationsApi.stats(decodeURIComponent(name)).then(r => r.data),
+    enabled: !!data,
+  });
+
   if (isLoading) return (
     <div className="p-4 md:p-6 space-y-4">
       {/* Header skeleton */}
@@ -52,8 +58,8 @@ export function CandidateDetailPage() {
       </div>
 
       {/* Stats cards skeleton */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        {[...Array(5)].map((_, i) => (
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+        {[...Array(6)].map((_, i) => (
           <Card key={i}>
             <CardContent>
               <div className="flex items-start gap-3">
@@ -142,7 +148,7 @@ export function CandidateDetailPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
         {[
           { label: 'CV Submitted', value: data.totalCvSent, icon: <FileText size={18} />, accent: 'bg-cyan-50 text-cyan-600' },
           { label: 'Total Interviews', value: data.totalInterviews, icon: <Users size={18} />, accent: 'bg-[#5067F4]/10 text-[#5067F4]' },
@@ -164,6 +170,27 @@ export function CandidateDetailPage() {
             </CardContent>
           </Card>
         ))}
+        <Card className={prepStats?.recency === 'stale' ? 'ring-1 ring-red-200' : prepStats?.recency === 'aging' ? 'ring-1 ring-yellow-200' : ''}>
+          <CardContent>
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 rounded-lg p-2 bg-[#534AB7]/10 text-[#534AB7]">
+                <CalendarDays size={18} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Preparation</p>
+                <p className="text-2xl font-bold text-slate-900 mt-0.5">
+                  {prepStats?.total ?? 0}
+                  <span className="text-sm font-normal text-slate-400 ml-1">sessions</span>
+                </p>
+                {prepStats?.lastPreparationDate && (
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Last on {formatDate(prepStats.lastPreparationDate)}
+                  </p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Strengths, Weaknesses & Decision Breakers */}

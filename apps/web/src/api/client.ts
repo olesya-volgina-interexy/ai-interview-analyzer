@@ -374,6 +374,67 @@ export interface PreparationListResponse {
   items: PreparationDocListItem[];
 }
 
+export interface LinearIssueItem {
+  id: string;
+  title: string;
+  stateName: string;
+  role: string;
+  clientName: string | null;
+}
+
+export const linearApi = {
+  getIssues: (params?: { search?: string; first?: number }) =>
+    api.get<LinearIssueItem[]>('/linear/issues', { params }),
+};
+
+export interface PreparationItem {
+  id: string;
+  candidateName: string;
+  linearIssueId: string;
+  linearIssueTitle: string;
+  preparationDate: string;
+  type: 'message' | 'call' | 'call_setup';
+  recency: 'fresh' | 'aging' | 'stale';
+  sessionCount: number;
+  hasInterviews: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const preparationsApi = {
+  create: (data: {
+    candidateName: string;
+    linearIssueId: string;
+    linearIssueTitle: string;
+    preparationDate: string;
+    type: 'message' | 'call' | 'call_setup';
+  }) => api.post<PreparationItem>('/preparations', data),
+
+  list: (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    type?: string;
+    recency?: string;
+  }) => api.get<PreparationItem[]>('/preparations', { params }),
+
+  update: (id: string, data: {
+    candidateName: string;
+    linearIssueId: string;
+    linearIssueTitle: string;
+    preparationDate: string;
+    type: 'message' | 'call' | 'call_setup';
+    isNewSession?: boolean;
+  }) => api.put<PreparationItem>(`/preparations/${id}`, data),
+
+  delete: (id: string) => api.delete(`/preparations/${id}`),
+
+  stats: (candidateName: string) =>
+    api.get<{ total: number; lastPreparationDate: string | null; recency: 'fresh' | 'aging' | 'stale' | null }>(
+      `/preparations/stats/${encodeURIComponent(candidateName)}`
+    ),
+};
+
 export const preparationApi = {
   generate: (data: GeneratePreparationDocRequest) =>
     api.post<{ id: string; jobId: string }>('/preparation', data),
