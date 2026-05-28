@@ -5,7 +5,7 @@ import { prisma } from '../db/prisma';
 
 export async function authRoutes(fastify: FastifyInstance) {
   fastify.post('/auth/login', async (request, reply) => {
-    const { email, password } = LoginRequestSchema.parse(request.body);
+    const { email, password, rememberMe } = LoginRequestSchema.parse(request.body);
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
@@ -23,7 +23,7 @@ export async function authRoutes(fastify: FastifyInstance) {
     );
     const refreshToken = fastify.jwt.sign(
       { id: user.id, type: 'refresh' },
-      { expiresIn: '7d' }
+      { expiresIn: rememberMe ? '30d' : '1d' }
     );
 
     return reply.send({
