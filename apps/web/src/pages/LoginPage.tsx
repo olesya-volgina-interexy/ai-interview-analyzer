@@ -7,6 +7,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -15,7 +16,7 @@ export function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await login({ email, password });
+      await login({ email, password, rememberMe });
       navigate({ to: '/' });
     } catch {
       setError('Invalid email or password');
@@ -37,6 +38,13 @@ export function LoginPage() {
           type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)}
           required className="w-full border rounded px-3 py-2 text-sm bg-background"
         />
+        <label className="flex items-center gap-2 text-sm select-none cursor-pointer">
+          <input
+            type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)}
+            className="h-4 w-4"
+          />
+          Remember me
+        </label>
         <button type="submit" disabled={loading}
           className="w-full bg-primary text-primary-foreground rounded px-3 py-2 text-sm font-medium disabled:opacity-50">
           {loading ? 'Signing in…' : 'Sign in'}

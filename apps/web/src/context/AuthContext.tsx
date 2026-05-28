@@ -18,12 +18,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('accessToken');
-    if (!token) { setIsLoading(false); return; }
-    axios.get(`${BASE}/auth/me`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(r => setUser(r.data))
-      .catch(() => { localStorage.removeItem('accessToken'); localStorage.removeItem('refreshToken'); })
-      .finally(() => setIsLoading(false));
+    const fetchMe = (accessToken: string) =>
+      axios.get(`${BASE}/auth/me`, { headers: { Authorization: `Bearer ${accessToken}` } });
+
+    const tryRefresh = async () => {
+      const refreshToken = localStorage.getItem('refreshToken');
+      if (!refreshToken) return null;
+      try {
+        const r = await axios.post(`${BASE}/auth/refresh`, { refreshToken });
+        localStorage.setItem('accessToken', r.data.accessToken);
+        localStorage.setItem('refreshToken', r.data.refreshToken);
+        return r.data.accessToken as string;
+      } catch {
+        return null;
+      }
+    };
+
+    const restore = async () => {
+      const token = localStorage.getItem('accessToken');
+      if (!token) { setIsLoading(false); return; }
+      try {
+        const r = await fetchMe(token);
+        setUser(r.data);
+      } catch {
+        const newToken = await tryRefresh();
+        if (newToken) {
+          try {
+            const r = await fetchMe(newToken);
+            setUser(r.data);
+          } catch {
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('refreshToken');
+          }
+        } else {
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    restore();
   }, []);
 
   const login = async (data: LoginRequest) => {
