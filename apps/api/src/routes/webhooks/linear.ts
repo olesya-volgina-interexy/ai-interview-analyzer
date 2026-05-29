@@ -15,7 +15,8 @@ import { getExistingAnalysesForIssue, upsertIncomingRequest, updateIncomingReque
 import { prisma } from '../../db/prisma';
 import { redis } from '../../db/redis';
 import { fetchTranscript } from '../../services/bluedot.service';
-import { parseIssueTitle } from '../../services/linear.service';
+import { parseIssueTitle, splitVacancies } from '../../services/linear.service';
+import { matchVacancyToCandidate } from '../../services/vacancyMatcher.service';
 
 
 const STATUS_TRIAGE = 'Triage';
@@ -341,6 +342,57 @@ async function evaluateAndTriggerStages(
   await Promise.all(jobs);
 }
 
+// Если в тикете несколько вакансий — выбираем ту, на которую кандидат идёт,
+// по его CV и транскрипту. Возвращаем урезанный brokerRequest и название
+// выбранной вакансии (для пометки в Linear-комментарии).
+// При неудаче или одиночной вакансии — возвращаем исходное описание без пометки.
+async function resolveEffectiveBrokerRequest(
+  brokerRequest: string | undefined,
+  cvText: string,
+  transcript: string,
+  fastify: FastifyInstance,
+): Promise<{ brokerRequest: string | undefined; matchedVacancyTitle?: string }> {
+  if (!brokerRequest?.trim()) return { brokerRequest };
+
+  const vacancies = splitVacancies(brokerRequest);
+  if (vacancies.length < 2) return { brokerRequest };
+
+  try {
+    const match = await matchVacancyToCandidate({
+      vacancies,
+      cvText,
+      transcript,
+    });
+    if (!match || match.confidence === 'low') {
+      fastify.log.warn(
+        {
+          confidence: match?.confidence,
+          reasoning: match?.reasoning,
+          vacancyCount: vacancies.length,
+        },
+        '[vacancy-match] low confidence or null — analysing against full description',
+      );
+      return { brokerRequest };
+    }
+    const picked = vacancies[match.vacancyIndex];
+    fastify.log.info(
+      {
+        title: picked.title,
+        confidence: match.confidence,
+        reasoning: match.reasoning,
+      },
+      '[vacancy-match] candidate matched to vacancy',
+    );
+    return {
+      brokerRequest: picked.content,
+      matchedVacancyTitle: picked.title,
+    };
+  } catch (err) {
+    fastify.log.warn({ err }, '[vacancy-match] failed — falling back to full description');
+    return { brokerRequest };
+  }
+}
+
 async function triggerManagerCall(
   issueId: string,
   parsed: any,
@@ -370,6 +422,14 @@ async function triggerManagerCall(
     ]);
     const candidateName = nameFromCV ? nameFromCV : await extractNameFromTranscript(transcript);
 
+    const { brokerRequest: effectiveBrokerRequest, matchedVacancyTitle } =
+      await resolveEffectiveBrokerRequest(
+        parsed.brokerRequest,
+        cvText,
+        transcript,
+        fastify,
+      );
+
     await analyzeQueue.add(
       'analyze',
       {
@@ -385,10 +445,11 @@ async function triggerManagerCall(
           cvUrl: candidate.cvUrl ?? undefined,
         },
         cvText,
-        brokerRequest: parsed.brokerRequest ?? undefined,
+        brokerRequest: effectiveBrokerRequest,
         additionalContext: {
           managerFeedback: candidate.managerFeedback,
           parentCommentId: candidate.rootCommentId,
+          matchedVacancyTitle,
         },
       },
       {
@@ -433,6 +494,14 @@ async function triggerTechCall(
     ]);
     const candidateName = nameFromCV ?? await extractNameFromTranscript(transcript);
 
+    const { brokerRequest: effectiveBrokerRequest, matchedVacancyTitle } =
+      await resolveEffectiveBrokerRequest(
+        parsed.brokerRequest,
+        cvText,
+        transcript,
+        fastify,
+      );
+
     await analyzeQueue.add(
       'analyze',
       {
@@ -447,9 +516,10 @@ async function triggerTechCall(
           cvUrl: candidate.cvUrl ?? undefined,
         },
         cvText,
-        brokerRequest: parsed.brokerRequest ?? undefined,
+        brokerRequest: effectiveBrokerRequest,
         additionalContext: {
           parentCommentId: candidate.rootCommentId,
+          matchedVacancyTitle,
         },
       },
       {
