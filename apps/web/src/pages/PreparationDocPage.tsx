@@ -100,6 +100,7 @@ export function PreparationDocPage() {
             candidateName={data.candidateName}
             clientName={data.clientName}
             generatedAt={data.createdAt}
+            docId={data.id}
           />
         </CardContent>
       </Card>

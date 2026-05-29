@@ -4,8 +4,10 @@ import { useNavigate } from '@tanstack/react-router';
 import { candidatesApi, interviewsApi, pipelineCandidatesApi, type PipelineCandidateItem } from '@/api/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { Search, X } from 'lucide-react';
+import { Search, X, FileText } from 'lucide-react';
+import { CreatePreparationDocModal } from '@/components/modals/CreatePreparationDocModal';
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', {
@@ -298,6 +300,7 @@ export function CandidatesPage() {
   const [resultFilter, setResultFilter] = useState('');
   const [sortKey, setSortKey] = useState<'totalInterviews' | 'avgScore' | 'lastInterviewAt'>('lastInterviewAt');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [prepDocModalOpen, setPrepDocModalOpen] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 300);
@@ -345,8 +348,12 @@ export function CandidatesPage() {
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Candidates</h1>
-        {activeTab === 'analyzed' && <span className="text-sm text-slate-400">{data?.length ?? 0} records</span>}
       </div>
+
+      <CreatePreparationDocModal
+        open={prepDocModalOpen}
+        onClose={() => setPrepDocModalOpen(false)}
+      />
 
       <div className="flex gap-1 border-b border-slate-200">
         <button
@@ -420,6 +427,15 @@ export function CandidatesPage() {
               <X size={12} /> Clear
             </button>
           )}
+
+          <Button
+            onClick={() => setPrepDocModalOpen(true)}
+            className="ml-auto h-8 gap-2 text-sm"
+            style={{ background: '#534AB7' }}
+          >
+            <FileText size={14} />
+            Create prep doc
+          </Button>
         </div>
 
       {isLoading ? (

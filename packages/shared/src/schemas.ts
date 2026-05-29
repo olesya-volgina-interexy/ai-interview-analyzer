@@ -189,6 +189,10 @@ export const GeneratePreparationDocRequestSchema = z.object({
   clientName: z.string().min(1),
   candidateId: z.string().uuid().optional(),
   cvText: z.string().optional(),
+  cvUrl: z.string().url().optional(),
+  role: z.string().optional(),
+  linearIssueId: z.string().optional(),
+  brokerRequest: z.string().optional(),
 });
 
 export type FinalResultAnalysis = z.infer<typeof FinalResultAnalysisSchema>;

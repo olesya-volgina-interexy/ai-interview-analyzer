@@ -9,10 +9,12 @@ import { candidateRoutes } from './routes/candidates';
 import { clientRoutes } from './routes/clients';
 import { uploadRoutes } from './routes/upload';
 import { preparationRoutes } from './routes/preparation';
+import { linearRoutes } from './routes/linear';
 import './workers/analyze.worker';
 import './workers/preparation.worker';
 import { linearWebhookRoutes } from './routes/webhooks/linear';
 import { verifyLinearAuth } from './services/linear.service';
+import { shutdownPdfService } from './services/pdf.service';
 
 const app = Fastify({ logger: true });
 
@@ -36,6 +38,7 @@ app.register(candidateRoutes, { prefix: '/api' });
 app.register(clientRoutes, { prefix: '/api' });
 app.register(uploadRoutes, { prefix: '/api' });
 app.register(preparationRoutes, { prefix: '/api' });
+app.register(linearRoutes, { prefix: '/api' });
 
 app.get('/health', async () => ({ status: 'ok', version: '1.0.0' }));
 
@@ -75,6 +78,7 @@ start();
 const shutdown = async () => {
   app.log.info('Shutting down...');
   await app.close();
+  await shutdownPdfService();
   await prisma.$disconnect();
   process.exit(0);
 };

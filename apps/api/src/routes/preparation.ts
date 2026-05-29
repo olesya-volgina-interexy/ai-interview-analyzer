@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { GeneratePreparationDocRequestSchema } from '@shared/schemas';
 import { prisma } from '../db/prisma';
 import { preparationQueue, type PreparationJobData } from '../workers/preparation.worker';
+import { markdownToPdf } from '../services/pdf.service';
 
 const ListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -55,6 +56,7 @@ export async function preparationRoutes(fastify: FastifyInstance) {
       data: {
         candidateName: body.candidateName,
         clientName: body.clientName,
+        brokerRequest: body.brokerRequest,
         markdown: '',
         sourceInterviewIds: [],
         status: 'pending',
@@ -65,8 +67,11 @@ export async function preparationRoutes(fastify: FastifyInstance) {
       preparationDocId: doc.id,
       candidateName: body.candidateName,
       clientName: body.clientName,
+      role: body.role,
+      linearIssueId: body.linearIssueId,
       cvText: body.cvText,
-      cvUrl,
+      cvUrl: body.cvUrl ?? cvUrl,
+      brokerRequest: body.brokerRequest,
     };
 
     const job = await preparationQueue.add('preparation', jobData, {
@@ -105,6 +110,37 @@ export async function preparationRoutes(fastify: FastifyInstance) {
       }
 
       return base;
+    },
+  );
+
+  // GET /preparation/:id/pdf — рендерим markdown в PDF on-demand
+  fastify.get<{ Params: { id: string } }>(
+    '/preparation/:id/pdf',
+    async (request, reply) => {
+      const { id } = request.params;
+      const doc = await prisma.preparationDoc.findUnique({ where: { id } });
+
+      if (!doc) {
+        return reply.status(404).send({ error: 'Preparation doc not found' });
+      }
+      if (doc.status !== 'completed') {
+        return reply
+          .status(409)
+          .send({ error: 'Preparation doc is not ready yet', status: doc.status });
+      }
+
+      const title = `${doc.candidateName} — preparation`;
+      const pdf = await markdownToPdf(doc.markdown, title);
+
+      const safeName = `${doc.candidateName}-${doc.clientName}-prep.pdf`
+        .replace(/[^a-z0-9._-]+/gi, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+
+      return reply
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', `attachment; filename="${safeName}"`)
+        .send(pdf);
     },
   );
 

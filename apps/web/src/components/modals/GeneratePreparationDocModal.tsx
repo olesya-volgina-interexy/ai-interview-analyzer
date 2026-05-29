@@ -172,6 +172,7 @@ export function GeneratePreparationDocModal({
               candidateName={doc.candidateName}
               clientName={doc.clientName}
               generatedAt={doc.createdAt}
+              docId={docId ?? undefined}
             />
             <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
               <Button variant="outline" onClick={handleClose}>

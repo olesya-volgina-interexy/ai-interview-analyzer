@@ -346,4 +346,34 @@ export const preparationApi = {
 
   list: (params?: { page?: number; limit?: number; clientName?: string; candidateName?: string }) =>
     api.get<PreparationListResponse>('/preparation', { params }),
+
+  downloadPdf: (id: string) =>
+    api.get<Blob>(`/preparation/${encodeURIComponent(id)}/pdf`, {
+      responseType: 'blob',
+    }),
+};
+
+// ── Linear ─────────────────────────────────────────────────────────────────
+
+export interface LinearVacancy {
+  title: string;
+  content: string;
+  parsedRole: string;
+  parsedClientName: string | null;
+}
+
+export interface LinearIssuePreview {
+  issueId: string;
+  identifier: string;
+  title: string;
+  description: string | null;
+  parsedRole: string;
+  parsedClientName: string | null;
+  attachmentUrl: string | null;
+  vacancies: LinearVacancy[];
+}
+
+export const linearApi = {
+  previewIssue: (idOrUrl: string) =>
+    api.post<LinearIssuePreview>('/linear/issue/preview', { idOrUrl }),
 };
