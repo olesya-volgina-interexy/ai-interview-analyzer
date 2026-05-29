@@ -5,6 +5,7 @@ import { candidatesApi, interviewsApi, pipelineCandidatesApi, linearApi, prepara
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+
 import { Search, X, Phone, MessageSquare, Settings, Pencil, Trash2 } from 'lucide-react';
 import {
   Dialog,
@@ -381,7 +382,6 @@ function PreparationModal({ open, onOpenChange, editItem }: {
   const [date, setDate] = useState('');
   const [originalDate, setOriginalDate] = useState('');
   const [type, setType] = useState<'message' | 'call' | 'call_setup'>('call_setup');
-  const [isNewSession, setIsNewSession] = useState(false);
 
   const dateChanged = isEdit && date !== originalDate;
 
@@ -393,14 +393,12 @@ function PreparationModal({ open, onOpenChange, editItem }: {
       setDate(d);
       setOriginalDate(d);
       setType(editItem.type);
-      setIsNewSession(false);
     } else if (open && !editItem) {
       setCandidate('');
       setRole('');
       setDate('');
       setOriginalDate('');
       setType('call_setup');
-      setIsNewSession(false);
     }
   }, [open, editItem]);
 
@@ -428,7 +426,8 @@ function PreparationModal({ open, onOpenChange, editItem }: {
         preparationDate: date,
         type,
       };
-      if (isEdit) return preparationsApi.update(editItem.id, { ...payload, isNewSession });
+      if (isEdit && !dateChanged) return preparationsApi.update(editItem.id, { ...payload, isNewSession: false });
+      if (isEdit && dateChanged) return preparationsApi.create(payload);
       return preparationsApi.create(payload);
     },
     onSuccess: () => {
@@ -491,39 +490,10 @@ function PreparationModal({ open, onOpenChange, editItem }: {
               <input
                 type="date"
                 value={date}
-                onChange={e => { setDate(e.target.value); if (!isEdit) return; setIsNewSession(false); }}
+                onChange={e => setDate(e.target.value)}
                 className="w-full h-10 rounded-lg border border-slate-200 px-3 text-sm bg-white outline-none focus:border-[#534AB7] transition-colors"
               />
             </div>
-            {dateChanged && (
-              <div className="flex items-center gap-3 mt-2 p-3 rounded-lg border border-[#534AB7]/20 bg-[#534AB7]/5">
-                <span className="text-sm text-slate-600 flex-1">Is this a new prep session?</span>
-                <button
-                  type="button"
-                  onClick={() => setIsNewSession(false)}
-                  className={cn(
-                    'text-xs font-medium px-3 py-1.5 rounded-full transition-colors',
-                    !isNewSession
-                      ? 'bg-[#534AB7] text-white'
-                      : 'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'
-                  )}
-                >
-                  No, just a date fix
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsNewSession(true)}
-                  className={cn(
-                    'text-xs font-medium px-3 py-1.5 rounded-full transition-colors',
-                    isNewSession
-                      ? 'bg-[#534AB7] text-white'
-                      : 'bg-white text-slate-500 border border-slate-200 hover:border-slate-300'
-                  )}
-                >
-                  Yes, new session
-                </button>
-              </div>
-            )}
           </div>
 
           {/* Preparation type */}
@@ -578,7 +548,7 @@ function PreparationModal({ open, onOpenChange, editItem }: {
             disabled={!canSave || saveMutation.isPending}
             onClick={() => saveMutation.mutate()}
           >
-            {saveMutation.isPending ? 'Saving...' : isNewSession ? 'Save as new session' : isEdit ? 'Update preparation' : 'Save preparation'}
+            {saveMutation.isPending ? 'Saving...' : isEdit && dateChanged ? 'Save as new session' : isEdit ? 'Update preparation' : 'Save preparation'}
           </Button>
         </div>
       </DialogContent>
@@ -587,7 +557,6 @@ function PreparationModal({ open, onOpenChange, editItem }: {
 }
 
 function PreparationTab() {
-  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -618,9 +587,23 @@ function PreparationTab() {
   });
 
   const [deleteTarget, setDeleteTarget] = useState<PreparationItem | null>(null);
+  const [historyCandidate, setHistoryCandidate] = useState<string | null>(null);
 
   const hasFilters = !!search || !!typeFilter || !!recencyFilter || !!dateFilter;
-  const items = data ?? [];
+  const items = (data ?? []).filter(item => {
+    if (!dateFilter) return true;
+    const now = new Date();
+    const prepDate = new Date(item.preparationDate);
+    const diff = now.getTime() - prepDate.getTime();
+    const DAY = 24 * 60 * 60 * 1000;
+    if (dateFilter === 'week' && diff > 7 * DAY) return false;
+    if (dateFilter === 'month' && diff > 30 * DAY) return false;
+    if (dateFilter === '3months' && diff > 90 * DAY) return false;
+    if (dateFilter === '6months' && diff > 180 * DAY) return false;
+    if (dateFilter === 'year' && diff > 365 * DAY) return false;
+    if (dateFilter === '2years' && diff > 730 * DAY) return false;
+    return true;
+  });
 
   return (
     <div className="space-y-4">
@@ -670,6 +653,9 @@ function PreparationTab() {
             { value: 'week', label: 'Last week' },
             { value: 'month', label: 'Last month' },
             { value: '3months', label: 'Last 3 months' },
+            { value: '6months', label: 'Last 6 months' },
+            { value: 'year', label: 'Last year' },
+            { value: '2years', label: 'Last 2 years' },
           ]}
           onChange={v => setDateFilter(v)}
           triggerClass="min-w-32"
@@ -770,7 +756,68 @@ function PreparationTab() {
         </DialogContent>
       </Dialog>
 
-      <div className={cn('transition-all duration-200', (modalOpen || !!deleteTarget) && 'blur-sm pointer-events-none')}>
+      <Dialog open={!!historyCandidate} onOpenChange={open => { if (!open) setHistoryCandidate(null); }}>
+        <DialogContent className="sm:max-w-[640px] p-0 gap-0" showCloseButton={true}>
+          <div className="p-6 pb-0">
+            <DialogHeader>
+              <DialogTitle className="text-base font-semibold">Preparation History</DialogTitle>
+              <DialogDescription className="text-sm text-slate-400">
+                All preparation sessions for {historyCandidate}
+              </DialogDescription>
+            </DialogHeader>
+          </div>
+          <div className="p-6">
+            {(() => {
+              const historyItems = (items ?? []).filter(i => i.candidateName === historyCandidate);
+              if (!historyItems.length) return <p className="text-sm text-slate-400 text-center py-4">No records found</p>;
+              return (
+                <div className="rounded-lg border border-slate-200 overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr style={{ background: '#EEF0FE', borderBottom: '0.5px solid #D9DEFB' }}>
+                        <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style={{ color: '#3D52D9' }}>Date</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style={{ color: '#3D52D9' }}>Candidate</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style={{ color: '#3D52D9' }}>Vacancy</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historyItems.map((h, idx) => {
+                        const av = getAvatarColor(h.candidateName);
+                        return (
+                          <tr
+                            key={h.id}
+                            style={{ borderBottom: idx < historyItems.length - 1 ? '0.5px solid var(--color-border-tertiary)' : 'none' }}
+                          >
+                            <td className="px-4 py-2.5 whitespace-nowrap" style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>
+                              {formatDate(h.preparationDate)}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex items-center gap-2">
+                                <div
+                                  className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-medium"
+                                  style={{ background: av.bg, color: av.color }}
+                                >
+                                  {getInitials(h.candidateName)}
+                                </div>
+                                <span className="text-sm font-medium truncate">{h.candidateName}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-2.5 truncate" style={{ color: 'var(--color-text-secondary)' }}>
+                              {h.linearIssueTitle}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <div className={cn('transition-all duration-200', (modalOpen || !!deleteTarget || !!historyCandidate) && 'blur-sm pointer-events-none')}>
       {isLoading ? (
         <div className="space-y-2">
           {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-md" />)}
@@ -785,9 +832,9 @@ function PreparationTab() {
           <table className="w-full text-sm table-fixed">
             <thead>
               <tr style={{ background: '#EEF0FE', borderBottom: '0.5px solid #D9DEFB' }}>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[14%]" style={{ color: '#3D52D9' }}>Date</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[18%]" style={{ color: '#3D52D9' }}>Candidate</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[28%]" style={{ color: '#3D52D9' }}>Role / Vacancy</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[14%]" style={{ color: '#3D52D9' }}>Date</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[14%]" style={{ color: '#3D52D9' }}>Type</th>
                 <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[16%]" style={{ color: '#3D52D9' }}>Recency</th>
                 <th className="px-4 py-3 w-[10%]" />
@@ -803,12 +850,15 @@ function PreparationTab() {
                 return (
                   <tr
                     key={item.id}
-                    onClick={() => item.hasInterviews && navigate({ to: '/candidates/$name', params: { name: item.candidateName } })}
-                    className={cn('transition-colors', item.hasInterviews ? 'cursor-pointer' : 'cursor-default')}
+                    onClick={() => setHistoryCandidate(item.candidateName)}
+                    className="cursor-pointer transition-colors"
                     style={{ borderBottom: idx < items.length - 1 ? '0.5px solid var(--color-border-tertiary)' : 'none' }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-background-secondary)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                   >
+                    <td className="px-4 py-3 whitespace-nowrap" style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>
+                      {formatDate(item.preparationDate)}
+                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <div
@@ -824,9 +874,6 @@ function PreparationTab() {
                     </td>
                     <td className="px-4 py-3 truncate" style={{ color: 'var(--color-text-secondary)' }}>
                       {item.linearIssueTitle}
-                    </td>
-                    <td className="px-4 py-3 whitespace-nowrap" style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>
-                      {formatDate(item.preparationDate)}
                     </td>
                     <td className="px-4 py-3">
                       <span
