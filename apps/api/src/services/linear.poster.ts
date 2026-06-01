@@ -2,6 +2,14 @@ import { postReply } from './linear.service';
 import type { ManagerCallAnalysis, TechnicalAnalysis } from '@shared/schemas';
 import { describeError } from '../utils/errorLogger';
 
+// Ссылка на детальный анализ кандидата на нашем фронте.
+// Возвращает '' если нет имени кандидата или не задан WEB_APP_URL — тогда коммент остаётся без ссылки.
+function buildAnalysisLink(candidateName?: string): string {
+  const base = process.env.WEB_APP_URL?.replace(/\/+$/, '');
+  if (!base || !candidateName) return '';
+  return `\n\n---\n[View detailed analysis](${base}/candidates/${encodeURIComponent(candidateName)})`;
+}
+
 
 async function postReplyWithRetry(
   issueId: string,
@@ -61,6 +69,7 @@ export async function postManagerCallAnalysis(
   parentCommentId: string,
   analysis: ManagerCallAnalysis,
   matchedVacancyTitle?: string,
+  candidateName?: string,
 ): Promise<void> {
   const vacancyNote = matchedVacancyTitle
     ? `\n_Evaluated against: **${matchedVacancyTitle}**_\n`
@@ -78,7 +87,7 @@ ${vacancyNote}
 
 ### Recommendation
 ${analysis.recommendation}
-`.trim();
+`.trim() + buildAnalysisLink(candidateName);
 
   await postReplyWithRetry(issueId, parentCommentId, body);
 }
@@ -90,18 +99,11 @@ export async function postTechnicalAnalysis(
   parentCommentId: string,
   analysis: TechnicalAnalysis,
   matchedVacancyTitle?: string,
+  candidateName?: string,
 ): Promise<void> {
   const vacancyNote = matchedVacancyTitle
     ? `\n_Evaluated against: **${matchedVacancyTitle}**_\n`
     : '';
-
-  const declaredNotAssessed = analysis.cvMatch.declaredSkills
-    .filter(
-      (s) =>
-        !analysis.cvMatch.confirmedSkills.includes(s) &&
-        !analysis.cvMatch.unconfirmedSkills.includes(s),
-    )
-    .join(', ');
 
   const body = `
 ## Technical Call Analysis
@@ -110,19 +112,12 @@ ${vacancyNote}
 **Level:** ${analysis.technicalLevel ?? '—'}
 **Score:** ${analysis.score}/100
 
-### CV Match — ${analysis.cvMatch.cvMatchScore}%
-- Confirmed: ${analysis.cvMatch.confirmedSkills.join(', ') || '—'}
-- Not confirmed: ${analysis.cvMatch.unconfirmedSkills.join(', ') || '—'}
-- Declared, not tested: ${declaredNotAssessed || '—'}
-
-### Broker Match — ${analysis.brokerRequestMatch.brokerMatchScore}%
-- Covered: ${analysis.brokerRequestMatch.coveredRequirements.join(', ') || '—'}
-- Missing: ${analysis.brokerRequestMatch.missingRequirements.join(', ') || '—'}
-- Not assessed: ${(analysis.brokerRequestMatch.notAssessedRequirements ?? []).join(', ') || '—'}
+**CV Match — ${analysis.cvMatch.cvMatchScore}%**
+**Broker Match — ${analysis.brokerRequestMatch.brokerMatchScore}%**
 
 ### Role Fit
 ${analysis.roleFitSummary}
-`.trim();
+`.trim() + buildAnalysisLink(candidateName);
 
   await postReplyWithRetry(issueId, parentCommentId, body);
 }
@@ -133,7 +128,8 @@ export async function postFinalResult(
   issueId: string,
   parentCommentId: string,
   analysis: any,
-  decision: 'hired' | 'lost'
+  decision: 'hired' | 'lost',
+  candidateName?: string,
 ): Promise<void> {
   const body = `
 ## Final Result
@@ -145,7 +141,7 @@ ${analysis.reasoning}
 
 ### Recommendation
 ${analysis.recommendation}
-`.trim();
+`.trim() + buildAnalysisLink(candidateName);
 
   await postReplyWithRetry(issueId, parentCommentId, body);
 }

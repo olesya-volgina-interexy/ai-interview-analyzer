@@ -105,7 +105,8 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
               meta.linearIssueId!,
               parentCommentId,
               analysis,
-              finalDecision ?? 'lost'
+              finalDecision ?? 'lost',
+              meta.candidateName,
             ),
             { op: 'postFinalResult', linearIssueId: meta.linearIssueId, parentCommentId }
           );
@@ -289,13 +290,13 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
         if (analysis.stage === 'manager_call') {
           await runStage(
             'linear',
-            () => postManagerCallAnalysis(meta.linearIssueId!, parentCommentId, analysis, matchedVacancyTitle),
+            () => postManagerCallAnalysis(meta.linearIssueId!, parentCommentId, analysis, matchedVacancyTitle, meta.candidateName),
             { op: 'postManagerCallAnalysis', linearIssueId: meta.linearIssueId, parentCommentId }
           );
         } else if (analysis.stage === 'technical') {
           await runStage(
             'linear',
-            () => postTechnicalAnalysis(meta.linearIssueId!, parentCommentId, analysis, matchedVacancyTitle),
+            () => postTechnicalAnalysis(meta.linearIssueId!, parentCommentId, analysis, matchedVacancyTitle, meta.candidateName),
             { op: 'postTechnicalAnalysis', linearIssueId: meta.linearIssueId, parentCommentId }
           );
         }
