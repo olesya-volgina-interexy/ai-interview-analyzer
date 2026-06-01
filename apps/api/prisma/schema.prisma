@@ -101,6 +101,23 @@ model PreparationDoc {
   updatedAt           DateTime @updatedAt
 }
 
+model Preparation {
+  id               String   @id @default(uuid())
+  candidateName    String
+  linearIssueId    String
+  linearIssueTitle String
+  preparationDate  DateTime
+  type             String   // 'message' | 'call' | 'call_setup'
+  sessionCount     Int      @default(1)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("preparations")
+  @@index([candidateName])
+  @@index([linearIssueId])
+  @@index([preparationDate])
+}
+
 model User {
   id        String   @id @default(uuid())
   email     String   @unique

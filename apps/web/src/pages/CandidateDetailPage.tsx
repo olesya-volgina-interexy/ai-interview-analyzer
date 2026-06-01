@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { candidatesApi } from '@/api/client';
+import { candidatesApi, preparationsApi } from '@/api/client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CandidateModal } from '@/components/modals/CandidateModal';
-import { ArrowLeft, Users, CheckCircle, XCircle, Target, FileText } from 'lucide-react';
+import { ArrowLeft, Users, CheckCircle, XCircle, Target, FileText, CalendarDays, Phone, MessageSquare, Settings } from 'lucide-react';
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', {
@@ -18,6 +18,12 @@ const STAGE_LABEL: Record<string, string> = {
   manager_call: 'Manager Call',
   technical: 'Technical',
   final_result: 'Final Result',
+};
+
+const PREP_TYPE_CONFIG: Record<string, { label: string; icon: typeof Phone; bg: string; color: string; border: string }> = {
+  call: { label: 'Call', icon: Phone, bg: '#FEF9EE', color: '#854F0B', border: '#F5E6C8' },
+  message: { label: 'Message', icon: MessageSquare, bg: '#FEF9EE', color: '#854F0B', border: '#F5E6C8' },
+  call_setup: { label: 'Call + Setup', icon: Settings, bg: '#EEF0FE', color: '#534AB7', border: '#D9DEFB' },
 };
 
 const RESULT_STYLE: Record<string, string> = {
@@ -40,6 +46,20 @@ export function CandidateDetailPage() {
     queryFn: () => candidatesApi.getByName(decodeURIComponent(name)).then(r => r.data),
   });
 
+  const { data: prepStats } = useQuery({
+    queryKey: ['preparation-stats', name],
+    queryFn: () => preparationsApi.stats(decodeURIComponent(name)).then(r => r.data),
+    enabled: !!data,
+  });
+
+  const { data: prepHistory } = useQuery({
+    queryKey: ['preparations', name],
+    queryFn: () => preparationsApi.list({ search: decodeURIComponent(name), limit: 50 }).then(r =>
+      r.data.filter(p => p.candidateName === decodeURIComponent(name))
+    ),
+    enabled: !!data,
+  });
+
   if (isLoading) return (
     <div className="p-4 md:p-6 space-y-4">
       {/* Header skeleton */}
@@ -52,8 +72,8 @@ export function CandidateDetailPage() {
       </div>
 
       {/* Stats cards skeleton */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-        {[...Array(5)].map((_, i) => (
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+        {[...Array(6)].map((_, i) => (
           <Card key={i}>
             <CardContent>
               <div className="flex items-start gap-3">
@@ -142,7 +162,7 @@ export function CandidateDetailPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
         {[
           { label: 'CV Submitted', value: data.totalCvSent, icon: <FileText size={18} />, accent: 'bg-cyan-50 text-cyan-600' },
           { label: 'Total Interviews', value: data.totalInterviews, icon: <Users size={18} />, accent: 'bg-[#5067F4]/10 text-[#5067F4]' },
@@ -164,6 +184,27 @@ export function CandidateDetailPage() {
             </CardContent>
           </Card>
         ))}
+        <Card className={prepStats?.recency === 'stale' ? 'ring-1 ring-red-200' : prepStats?.recency === 'aging' ? 'ring-1 ring-yellow-200' : ''}>
+          <CardContent>
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0 rounded-lg p-2 bg-[#534AB7]/10 text-[#534AB7]">
+                <CalendarDays size={18} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Preparation</p>
+                <p className="text-2xl font-bold text-slate-900 mt-0.5">
+                  {prepStats?.total ?? 0}
+                  <span className="text-sm font-normal text-slate-400 ml-1">sessions</span>
+                </p>
+                {prepStats?.lastPreparationDate && (
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Last on {formatDate(prepStats.lastPreparationDate)}
+                  </p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Strengths, Weaknesses & Decision Breakers */}
@@ -267,6 +308,49 @@ export function CandidateDetailPage() {
           </table>
         </CardContent>
       </Card>
+
+      {/* Preparation History */}
+      {prepHistory && prepHistory.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Preparation History</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <table className="w-full text-sm table-fixed">
+              <thead className="bg-[#534AB7]/5 border-b border-[#534AB7]/10">
+                <tr>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[#534AB7]/70 uppercase tracking-wide w-[18%]">Date</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[#534AB7]/70 uppercase tracking-wide w-[30%]">Candidate</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[#534AB7]/70 uppercase tracking-wide w-[34%]">Vacancy</th>
+                  <th className="text-left px-3 py-2 text-xs font-medium text-[#534AB7]/70 uppercase tracking-wide w-[18%]">Type</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {prepHistory.map(p => {
+                  const tc = PREP_TYPE_CONFIG[p.type];
+                  const TypeIcon = tc.icon;
+                  return (
+                    <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{formatDate(p.preparationDate)}</td>
+                      <td className="px-3 py-2 text-slate-600 font-medium">{p.candidateName}</td>
+                      <td className="px-3 py-2 text-slate-600 truncate">{p.linearIssueTitle}</td>
+                      <td className="px-3 py-2">
+                        <span
+                          className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full"
+                          style={{ background: tc.bg, color: tc.color, border: `1px solid ${tc.border}` }}
+                        >
+                          <TypeIcon size={12} />
+                          {tc.label}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      )}
 
       <CandidateModal
         interviewId={selectedId}

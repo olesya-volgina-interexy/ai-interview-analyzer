@@ -148,6 +148,67 @@ async function linearGraphQL<T>(
   return json.data;
 }
 
+// ── Получить список issues (вакансий) ────────────────────────────────────────
+
+export interface LinearIssueListItem {
+  id: string;
+  title: string;
+  stateName: string;
+  role: string;
+  clientName: string | null;
+}
+
+export async function getIssues(opts: {
+  first?: number;
+  search?: string;
+} = {}): Promise<LinearIssueListItem[]> {
+  const first = opts.first ?? 50;
+
+  const VISIBLE_STATES = ['Triage', "Broker's Call", 'Tech Call'];
+
+  const query = `
+    query GetIssues($first: Int!, $filter: IssueFilter) {
+      issues(first: $first, filter: $filter, orderBy: updatedAt) {
+        nodes {
+          id
+          title
+          state { name type }
+        }
+      }
+    }
+  `;
+
+  const filter: Record<string, unknown> = {
+    state: {
+      name: { in: VISIBLE_STATES },
+    },
+  };
+  if (opts.search) {
+    filter.title = { containsIgnoreCase: opts.search };
+  }
+
+  const data = await linearGraphQL<{
+    issues: {
+      nodes: Array<{
+        id: string;
+        title: string;
+        state: { name: string; type: string } | null;
+      }>;
+    };
+  }>(query, { first, filter });
+
+  return data.issues.nodes.map(issue => {
+    const { role, clientName } = parseIssueTitle(issue.title);
+    return {
+      id: issue.id,
+      title: issue.title,
+      stateName: issue.state?.name ?? 'unknown',
+      role,
+      clientName,
+    };
+  });
+}
+
 // ── Получить все комментарии тикета с parent.id через GraphQL ──────────────
 
 export async function getIssueComments(issueId: string): Promise<LinearComment[]> {
