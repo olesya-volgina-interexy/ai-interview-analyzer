@@ -82,6 +82,8 @@ export async function analyzeInterview(
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userMessage },
     ],
+    temperature: 0,
+    seed: 42,
     max_completion_tokens: 6000,
   });
 
@@ -136,6 +138,8 @@ async function analyzeTechnicalInterview(
       { role: 'system', content: buildTechnicalStep1Prompt(options?.brokerRequest) },
       { role: 'user', content: buildStep1UserMessage(truncation.text, options?.brokerRequest) },
     ],
+    temperature: 0,
+    seed: 42,
     max_completion_tokens: 8000,
   });
 
@@ -175,6 +179,8 @@ async function analyzeTechnicalInterview(
       { role: 'system', content: step2SystemPrompt },
       { role: 'user', content: step2UserContent },
     ],
+    temperature: 0,
+    seed: 42,
     max_completion_tokens: 3000,
   });
 
@@ -268,6 +274,8 @@ export async function analyzeFinalResult(
         content: `PREVIOUS ANALYSES:\n\n${previousAnalyses}`
       },
     ],
+    temperature: 0,
+    seed: 42,
     max_completion_tokens: 2000,
   });
 
