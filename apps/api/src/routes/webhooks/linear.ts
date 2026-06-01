@@ -346,6 +346,19 @@ async function evaluateAndTriggerStages(
 // по его CV и транскрипту. Возвращаем урезанный brokerRequest и название
 // выбранной вакансии (для пометки в Linear-комментарии).
 // При неудаче или одиночной вакансии — возвращаем исходное описание без пометки.
+// Дописывает дополнения из #brokers_request-комментариев к запросу брокера.
+// Клеим ПОСЛЕ выбора вакансии (resolveEffectiveBrokerRequest), чтобы не сбить
+// разрезание мультивакансий в splitVacancies.
+function appendBrokerSupplement(
+  brokerRequest: string | undefined,
+  supplement: string | null,
+): string | undefined {
+  if (!supplement?.trim()) return brokerRequest;
+  return [brokerRequest, supplement]
+    .filter(part => part?.trim())
+    .join('\n\n---\n\n');
+}
+
 async function resolveEffectiveBrokerRequest(
   brokerRequest: string | undefined,
   cvText: string,
@@ -422,13 +435,17 @@ async function triggerManagerCall(
     ]);
     const candidateName = nameFromCV ? nameFromCV : await extractNameFromTranscript(transcript);
 
-    const { brokerRequest: effectiveBrokerRequest, matchedVacancyTitle } =
+    const { brokerRequest: resolvedBrokerRequest, matchedVacancyTitle } =
       await resolveEffectiveBrokerRequest(
         parsed.brokerRequest,
         cvText,
         transcript,
         fastify,
       );
+    const effectiveBrokerRequest = appendBrokerSupplement(
+      resolvedBrokerRequest,
+      parsed.brokerRequestSupplement,
+    );
 
     await analyzeQueue.add(
       'analyze',
@@ -494,13 +511,17 @@ async function triggerTechCall(
     ]);
     const candidateName = nameFromCV ?? await extractNameFromTranscript(transcript);
 
-    const { brokerRequest: effectiveBrokerRequest, matchedVacancyTitle } =
+    const { brokerRequest: resolvedBrokerRequest, matchedVacancyTitle } =
       await resolveEffectiveBrokerRequest(
         parsed.brokerRequest,
         cvText,
         transcript,
         fastify,
       );
+    const effectiveBrokerRequest = appendBrokerSupplement(
+      resolvedBrokerRequest,
+      parsed.brokerRequestSupplement,
+    );
 
     await analyzeQueue.add(
       'analyze',
