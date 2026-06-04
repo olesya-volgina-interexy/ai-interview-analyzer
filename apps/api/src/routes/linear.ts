@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   getIssueData,
+  getIssues,
   normalizeIssueIdentifier,
   extractAttachmentUrl,
   splitVacancies,
@@ -13,6 +14,17 @@ const PreviewBodySchema = z.object({
 });
 
 export async function linearRoutes(fastify: FastifyInstance) {
+  // GET /linear/issues — список тикетов для выпадающего списка в форме.
+  fastify.get<{
+    Querystring: { search?: string; first?: string };
+  }>('/linear/issues', async (request) => {
+    const { search, first } = request.query;
+    return getIssues({
+      search: search || undefined,
+      first: first ? parseInt(first, 10) : 50,
+    });
+  });
+
   // POST /linear/issue/preview — read-only fetch для предзаполнения формы
   // ручной подготовительной доки. В БД ничего не пишет.
   fastify.post('/linear/issue/preview', async (request, reply) => {

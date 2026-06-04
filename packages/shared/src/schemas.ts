@@ -24,7 +24,7 @@ export const InterviewQuestionsSchema = z.object({
   questions: z.array(z.object({
     question: z.string(),
     topic: z.string().optional(),
-    candidateHandled: z.enum(['well', 'partial', 'poor', 'skipped']).optional(),
+    candidateHandled: z.enum(['well', 'partial', 'poor', 'skipped', 'guided']).catch('skipped').optional(),
   })),
 });
 
@@ -56,39 +56,56 @@ export const ManagerCallAnalysisSchema = z.object({
   questions: z.array(z.object({
     question: z.string(),
     topic: z.string().optional(),
-    candidateHandled: z.enum(['well', 'partial', 'poor', 'skipped']).optional(),
+    candidateHandled: z.enum(['well', 'partial', 'poor', 'skipped', 'guided']).catch('skipped').optional(),
   })).optional(),
 });
 
 export const CVMatchSchema = z.object({
-  declaredSkills: z.array(z.string()),    // ALL skills from CV (complete list)
-  confirmedSkills: z.array(z.string()),   // tested AND demonstrated in interview
-  unconfirmedSkills: z.array(z.string()), // tested but NOT demonstrated (penalises score)
+  declaredSkills: z.array(z.string()),
+  confirmedSkills: z.array(z.string()),
+  unconfirmedSkills: z.array(z.string()),
   discrepancies: z.array(z.string()),
-  cvMatchScore: z.number().min(0).max(100), // based only on tested skills
+  cvMatchScore: z.coerce.number().min(0).max(100),
 });
 
 export const BrokerRequestMatchSchema = z.object({
   requiredSkills: z.array(z.string()),
   coveredRequirements: z.array(z.string()),
-  missingRequirements: z.array(z.string()),                        // tested but NOT demonstrated (penalises score)
-  notAssessedRequirements: z.array(z.string()).optional(),         // in broker request but NOT covered in interview (neutral)
-  brokerMatchScore: z.number().min(0).max(100),   // based only on tested requirements
+  missingRequirements: z.array(z.string()),
+  notAssessedRequirements: z.array(z.string()).optional(),
+  brokerMatchScore: z.coerce.number().min(0).max(100),
   brokerFitSummary: z.string(),
+  brokerProxyScore: z.coerce.number().min(0).max(100).optional(),
+  brokerCoveragePercent: z.coerce.number().min(0).max(100).optional(),
+  brokerCoverageReliability: z.enum(['comprehensive', 'partial', 'minimal']).optional(),
 });
 
 export const TechnicalAnalysisSchema = z.object({
   stage: z.literal('technical'),
+  interviewFormat: z.enum(['standard', 'discovery', 'mixed']).optional(),
+  targetRole: z.string().optional(),
+  nonTargetRoles: z.array(z.string()).optional(),
   overallAssessment: z.string(),
   technicalLevel: z.enum(['Junior', 'Middle', 'Senior', 'uncertain']),
+  languageAssessment: z.object({
+    requiredLevel: z.string(),
+    demonstratedLevel: z.string(),
+    verdict: z.enum(['meets_requirement', 'borderline', 'below_requirement', 'not_assessed']),
+    evidence: z.string(),
+  }).optional(),
   strengths: z.array(z.string()),
   weaknesses: z.array(z.string()),
   risks: z.array(z.string()),
+  interviewerSentiment: z.array(z.object({
+    signal: z.string(),
+    interpretation: z.enum(['positive', 'negative', 'neutral']),
+    topic: z.string(),
+  })).optional(),
   technicalSkills: z.object({
-    depthOfKnowledge: z.string(),                // глубина знаний
-    problemSolving: z.string(),                  // решение задач
-    codeQuality: z.string(),                     // качество кода (если было)
-    systemDesign: z.string(),                    // системное мышление
+    depthOfKnowledge: z.string(),
+    problemSolving: z.string(),
+    codeQuality: z.string(),
+    systemDesign: z.string(),
   }),
   cvMatch: CVMatchSchema,
   brokerRequestMatch: BrokerRequestMatchSchema,
@@ -96,11 +113,14 @@ export const TechnicalAnalysisSchema = z.object({
   reasoning: z.string(),
   decisionBreakers: z.array(z.string()),
   roleFitSummary: z.string(),
-  score: z.number().min(0).max(100),
+  score: z.coerce.number().min(0).max(100),
+  answerQualityScore: z.coerce.number().min(0).max(100).optional(),
+  scopeCoverageScore: z.coerce.number().min(0).max(100).optional(),
   questions: z.array(z.object({
     question: z.string(),
     topic: z.string().optional(),
-    candidateHandled: z.enum(['well', 'partial', 'poor', 'skipped']).optional(),
+    candidateHandled: z.enum(['well', 'partial', 'poor', 'skipped', 'guided']).catch('skipped').optional(),
+    isReverseQuestion: z.boolean().optional(),
   })).optional(),
 });
 
@@ -195,6 +215,29 @@ export const GeneratePreparationDocRequestSchema = z.object({
   brokerRequest: z.string().optional(),
 });
 
+export const AuthUserSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+  name: z.string().nullable(),
+  role: z.string(),
+});
+
+export const LoginRequestSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+  rememberMe: z.boolean().optional(),
+});
+
+export const LoginResponseSchema = z.object({
+  accessToken: z.string(),
+  refreshToken: z.string(),
+  user: AuthUserSchema,
+});
+
+export const RefreshRequestSchema = z.object({
+  refreshToken: z.string(),
+});
+
 export type FinalResultAnalysis = z.infer<typeof FinalResultAnalysisSchema>;
 export type InterviewStage = z.infer<typeof InterviewStageSchema>;
 export type InterviewMeta = z.infer<typeof InterviewMetaSchema>;
@@ -211,3 +254,7 @@ export type ChatRequest = z.infer<typeof ChatRequestSchema>;
 export type PreparationDocStatus = z.infer<typeof PreparationDocStatusSchema>;
 export type PreparationDoc = z.infer<typeof PreparationDocSchema>;
 export type GeneratePreparationDocRequest = z.infer<typeof GeneratePreparationDocRequestSchema>;
+export type AuthUser = z.infer<typeof AuthUserSchema>;
+export type LoginRequest = z.infer<typeof LoginRequestSchema>;
+export type LoginResponse = z.infer<typeof LoginResponseSchema>;
+export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;

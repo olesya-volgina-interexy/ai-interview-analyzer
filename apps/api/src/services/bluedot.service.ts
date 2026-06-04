@@ -3,6 +3,8 @@
 import axios from 'axios';
 import pdfParse from 'pdf-parse';
 import puppeteer from 'puppeteer';
+import { sanitizePdfText, assertExtractedTextPlausible } from '../utils/pdfUtils';
+import { stripNullBytes } from '../utils/textSanitize';
 
 const BLUEDOT_PREVIEW_RE = /bluedothq\.com\/preview\//i;
 const LINEAR_UPLOAD_RE = /uploads\.linear\.app\//i;
@@ -130,7 +132,9 @@ async function fetchBluedotPreviewInner(url: string): Promise<string> {
 // ── Вырезать секцию транскрипции из полного текста страницы ──────────────
 
 function extractTranscriptSection(raw: string): string {
-  const lines = raw.split('\n').map(l => l.trim()).filter(Boolean);
+  // Strip null bytes that Puppeteer/Chrome can embed in extracted innerText —
+  // Postgres rejects them in TEXT columns and they confuse the LLM tokenizer.
+  const lines = stripNullBytes(raw).split('\n').map(l => l.trim()).filter(Boolean);
 
   const transcriptTabIdx = lines.findIndex(l =>
     /^transcript$/i.test(l)
@@ -170,10 +174,18 @@ async function fetchPdfTranscript(url: string): Promise<string> {
     headers: { 'User-Agent': 'Mozilla/5.0' },
   });
 
-  const parsed = await pdfParse(Buffer.from(res.data));
-  const text = parsed.text.trim();
+  const buffer = Buffer.from(res.data);
+  let parsed;
+  try {
+    parsed = await pdfParse(buffer);
+  } catch (err: any) {
+    throw new Error(`PDF_PARSE_FAILED: ${url} — ${err?.message ?? 'unknown error'}`);
+  }
+
+  const text = sanitizePdfText(parsed.text);
 
   if (!text) throw new Error(`PDF transcript is empty: ${url}`);
+  assertExtractedTextPlausible(text, buffer.length, url);
   return text;
 }
 
@@ -187,7 +199,8 @@ async function fetchRawText(url: string, withLinearAuth = false): Promise<string
   }
 
   const res = await axios.get(url, { timeout: 30_000, headers });
-  return typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+  const raw = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+  return stripNullBytes(raw);
 }
 
 // ── Утилиты ───────────────────────────────────────────────────────────────

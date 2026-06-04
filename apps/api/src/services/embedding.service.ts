@@ -5,12 +5,12 @@ const embeddingClient = new OpenAI({
   baseURL: process.env.LLM_BASE_URL,
 });
 
-// Returns vector of size 1024 (Qwen text-embedding-v3)
+// Returns vector of size 1536 (text-embedding-3-small)
 export async function embedText(text: string): Promise<number[]> {
   const truncated = text.slice(0, 8000);
 
   const res = await embeddingClient.embeddings.create({
-    model: process.env.EMBEDDING_MODEL ?? 'text-embedding-v4',
+    model: process.env.EMBEDDING_MODEL ?? 'text-embedding-3-small',
     input: truncated,
   });
 

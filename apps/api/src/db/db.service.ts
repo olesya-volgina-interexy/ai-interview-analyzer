@@ -3,6 +3,7 @@ import { prisma } from '../db/prisma';
 import type { InterviewMeta, CandidateAnalysis } from '@shared/schemas';
 import { redis } from '../db/redis';
 import { describeError } from '../utils/errorLogger';
+import { stripNullBytes, stripNullBytesDeep } from '../utils/textSanitize';
 
 // Создать запись интервью.
 // Returns { isDuplicate: true } when a concurrent worker already persisted the
@@ -19,25 +20,29 @@ export async function createInterview(data: {
   contentHash?: string;
 }): Promise<{ interview: Interview; isDuplicate: boolean }> {
   try {
+    // Strip null bytes (\0) from every text field — Postgres rejects them in
+    // TEXT/JSONB columns. Sources include PDF extraction, Puppeteer-rendered
+    // content, Linear uploads, and pasted text. Safety net even if upstream
+    // sanitisers missed any path.
     const interview = await prisma.interview.create({
       data: {
-        transcript: data.transcript,
-        cvText: data.cvText,
-        brokerRequest: data.brokerRequest,
+        transcript: stripNullBytes(data.transcript),
+        cvText: data.cvText ? stripNullBytes(data.cvText) : undefined,
+        brokerRequest: data.brokerRequest ? stripNullBytes(data.brokerRequest) : undefined,
         parentCommentId: data.parentCommentId,
         stage: data.meta.stage,
-        role: data.meta.role,
+        role: stripNullBytes(data.meta.role),
         level: data.meta.level,
         decision: data.meta.decision as string,
-        clientName: data.meta.clientName,
-        candidateName: data.meta.candidateName,
-        comments: data.meta.interviewerComments,
+        clientName: data.meta.clientName ? stripNullBytes(data.meta.clientName) : undefined,
+        candidateName: data.meta.candidateName ? stripNullBytes(data.meta.candidateName) : undefined,
+        comments: data.meta.interviewerComments ? stripNullBytes(data.meta.interviewerComments) : undefined,
         krisLink: data.meta.krisLink,
         cvUrl: data.meta.cvUrl,
         linearIssueId: data.meta.linearIssueId,
-        managerName: data.meta.managerName,
-        analysis: data.analysis as object,
-        questions: data.questions ? (data.questions as object[]) : undefined,
+        managerName: data.meta.managerName ? stripNullBytes(data.meta.managerName) : undefined,
+        analysis: stripNullBytesDeep(data.analysis) as object,
+        questions: data.questions ? (stripNullBytesDeep(data.questions) as object[]) : undefined,
         contentHash: data.contentHash,
       },
     });

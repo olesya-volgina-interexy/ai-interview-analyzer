@@ -1,29 +1,77 @@
-import axios, { AxiosError } from 'axios';
+import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
 import type { AnalyzeRequest, CandidateAnalysis, ClientInsights, PreparationDoc, GeneratePreparationDocRequest } from '@shared/schemas';
 
+const BASE_URL = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL}/api`
+  : '/api';
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL
-    ? `${import.meta.env.VITE_API_URL}/api`
-    : '/api',
+  baseURL: BASE_URL,
   headers: { 'Content-Type': 'application/json' },
 });
 
-// ── Глобальный перехватчик ошибок ──────────────────────────────────────────
+api.interceptors.request.use(config => {
+  const token = localStorage.getItem('accessToken');
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
+// Single in-flight refresh shared across concurrent 401s. Resolves to the new
+// access token, or null if refresh failed.
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = localStorage.getItem('refreshToken');
+  if (!refreshToken) return null;
+  try {
+    const r = await axios.post<{ accessToken: string; refreshToken: string }>(
+      `${BASE_URL}/auth/refresh`,
+      { refreshToken },
+      { headers: { 'Content-Type': 'application/json' } }
+    );
+    localStorage.setItem('accessToken', r.data.accessToken);
+    localStorage.setItem('refreshToken', r.data.refreshToken);
+    return r.data.accessToken;
+  } catch {
+    return null;
+  }
+}
+
+function forceLogout() {
+  localStorage.removeItem('accessToken');
+  localStorage.removeItem('refreshToken');
+  window.location.href = '/login';
+}
 
 api.interceptors.response.use(
   res => res,
-  (error: AxiosError) => {
+  async (error: AxiosError) => {
     if (!error.response) {
-      // Нет соединения с сервером
       throw new ApiError('Unable to connect to the server. Please check that the API is running.', 'NETWORK_ERROR');
     }
 
     const status = error.response.status;
     const data = error.response.data as any;
+    const original = error.config as (InternalAxiosRequestConfig & { _retried?: boolean }) | undefined;
+
+    if (status === 401 && original && !original._retried && !original.url?.includes('/auth/refresh') && !original.url?.includes('/auth/login')) {
+      original._retried = true;
+      refreshInFlight = refreshInFlight ?? refreshAccessToken().finally(() => { refreshInFlight = null; });
+      const newToken = await refreshInFlight;
+      if (newToken) {
+        original.headers.Authorization = `Bearer ${newToken}`;
+        return api.request(original);
+      }
+      forceLogout();
+      throw new ApiError('Session expired. Please log in again.', 'UNAUTHORIZED');
+    }
 
     switch (status) {
       case 400:
         throw new ApiError(data?.message ?? 'Invalid request data. Please check the form.', 'VALIDATION_ERROR');
+      case 401:
+        forceLogout();
+        throw new ApiError('Session expired. Please log in again.', 'UNAUTHORIZED');
       case 404:
         throw new ApiError('Resource not found.', 'NOT_FOUND');
       case 429:
@@ -36,12 +84,10 @@ api.interceptors.response.use(
   }
 );
 
-// ── ApiError класс ─────────────────────────────────────────────────────────
-
 export class ApiError extends Error {
   constructor(
     message: string,
-    public code: 'NETWORK_ERROR' | 'VALIDATION_ERROR' | 'NOT_FOUND' | 'RATE_LIMIT' | 'SERVER_ERROR' | 'UNKNOWN_ERROR'
+    public code: 'NETWORK_ERROR' | 'VALIDATION_ERROR' | 'NOT_FOUND' | 'RATE_LIMIT' | 'SERVER_ERROR' | 'UNKNOWN_ERROR' | 'UNAUTHORIZED'
   ) {
     super(message);
     this.name = 'ApiError';
@@ -53,8 +99,6 @@ export function getErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return 'An unexpected error occurred. Please try again.';
 }
-
-// ── Типы ответов ───────────────────────────────────────────────────────────
 
 export interface JobStatus {
   jobId: string;
@@ -95,8 +139,6 @@ export interface InterviewStats {
   byRole: Record<string, number>;
   byStage: Record<string, number>;
 }
-
-// ── API методы ─────────────────────────────────────────────────────────────
 
 export const analyzeApi = {
   start: (data: AnalyzeRequest) =>
@@ -315,8 +357,6 @@ export const uploadApi = {
   },
 };
 
-// ── Preparation Doc ────────────────────────────────────────────────────────
-
 export type PreparationDocListItem = Omit<PreparationDoc, 'markdown'>;
 
 export interface PreparationDocStatus {
@@ -333,6 +373,62 @@ export interface PreparationListResponse {
   limit: number;
   items: PreparationDocListItem[];
 }
+
+export interface LinearIssueItem {
+  id: string;
+  title: string;
+  stateName: string;
+  role: string;
+  clientName: string | null;
+}
+
+export interface PreparationItem {
+  id: string;
+  candidateName: string;
+  linearIssueId: string;
+  linearIssueTitle: string;
+  preparationDate: string;
+  type: 'message' | 'call' | 'call_setup';
+  recency: 'fresh' | 'aging' | 'stale';
+  sessionCount: number;
+  hasInterviews: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export const preparationsApi = {
+  create: (data: {
+    candidateName: string;
+    linearIssueId: string;
+    linearIssueTitle: string;
+    preparationDate: string;
+    type: 'message' | 'call' | 'call_setup';
+  }) => api.post<PreparationItem>('/preparations', data),
+
+  list: (params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    type?: string;
+    recency?: string;
+  }) => api.get<PreparationItem[]>('/preparations', { params }),
+
+  update: (id: string, data: {
+    candidateName: string;
+    linearIssueId: string;
+    linearIssueTitle: string;
+    preparationDate: string;
+    type: 'message' | 'call' | 'call_setup';
+    isNewSession?: boolean;
+  }) => api.put<PreparationItem>(`/preparations/${id}`, data),
+
+  delete: (id: string) => api.delete(`/preparations/${id}`),
+
+  stats: (candidateName: string) =>
+    api.get<{ total: number; lastPreparationDate: string | null; recency: 'fresh' | 'aging' | 'stale' | null }>(
+      `/preparations/stats/${encodeURIComponent(candidateName)}`
+    ),
+};
 
 export const preparationApi = {
   generate: (data: GeneratePreparationDocRequest) =>
@@ -376,4 +472,7 @@ export interface LinearIssuePreview {
 export const linearApi = {
   previewIssue: (idOrUrl: string) =>
     api.post<LinearIssuePreview>('/linear/issue/preview', { idOrUrl }),
+
+  getIssues: (params?: { search?: string; first?: number }) =>
+    api.get<LinearIssueItem[]>('/linear/issues', { params }),
 };
