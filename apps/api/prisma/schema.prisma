@@ -28,6 +28,7 @@ model Interview {
   managerName   String?
   questions     Json?
   contentHash   String?
+  analysisDate  DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   @@unique([linearIssueId, parentCommentId, stage])

@@ -5,6 +5,25 @@ import { redis } from '../db/redis';
 import { describeError } from '../utils/errorLogger';
 import { stripNullBytes, stripNullBytesDeep } from '../utils/textSanitize';
 
+// Выводим итоговое решение (hired/rejected) для колонки Interview.decision.
+// Раньше его задавал пользователь в форме; теперь форма этого поля не имеет,
+// поэтому берём решение из результата анализа LLM. Колонка используется
+// статистикой пайплайна (hired/rejected) и таблицей/фильтром интервью.
+function deriveDecision(
+  meta: InterviewMeta,
+  analysis: CandidateAnalysis,
+): 'hired' | 'rejected' | null {
+  // Явно переданное решение имеет приоритет (на случай будущих вызывающих).
+  if (meta.decision) return meta.decision;
+  if (analysis.stage === 'technical') {
+    if (analysis.recommendation === 'hire') return 'hired';
+    if (analysis.recommendation === 'no_hire') return 'rejected';
+    return null; // uncertain
+  }
+  if (analysis.stage === 'final_result') return analysis.decision;
+  return null; // manager_call — как и раньше, решение не выставляется
+}
+
 // Создать запись интервью.
 // Returns { isDuplicate: true } when a concurrent worker already persisted the
 // same (linearIssueId, parentCommentId, stage) — callers should skip any
@@ -33,7 +52,8 @@ export async function createInterview(data: {
         stage: data.meta.stage,
         role: stripNullBytes(data.meta.role),
         level: data.meta.level,
-        decision: data.meta.decision as string,
+        decision: deriveDecision(data.meta, data.analysis),
+        analysisDate: data.meta.analysisDate ? new Date(data.meta.analysisDate) : undefined,
         clientName: data.meta.clientName ? stripNullBytes(data.meta.clientName) : undefined,
         candidateName: data.meta.candidateName ? stripNullBytes(data.meta.candidateName) : undefined,
         comments: data.meta.interviewerComments ? stripNullBytes(data.meta.interviewerComments) : undefined,
@@ -140,6 +160,7 @@ export async function getInterviews(filters?: {
       candidateName: true,
       managerName: true,
       analysis: true,
+      analysisDate: true,
       createdAt: true,
     },
   });
