@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import type { GeneratePreparationDocRequest } from '@shared/schemas';
 import {
@@ -14,6 +14,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Loader2, Download, Link as LinkIcon, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -28,6 +35,7 @@ export function CreatePreparationDocModal({ open, onClose }: CreatePreparationDo
   const navigate = useNavigate();
 
   const [linearInput, setLinearInput] = useState('');
+  const [selectedIssueId, setSelectedIssueId] = useState('');
   const [clientName, setClientName] = useState('');
   const [role, setRole] = useState('');
   const [brokerRequest, setBrokerRequest] = useState('');
@@ -44,6 +52,13 @@ export function CreatePreparationDocModal({ open, onClose }: CreatePreparationDo
   const [cvFileName, setCvFileName] = useState<string | null>(null);
 
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  // Список тикетов Linear для выпадающего списка — грузим при открытии модалки.
+  const { data: linearIssues, isLoading: issuesLoading } = useQuery({
+    queryKey: ['linear-issues'],
+    queryFn: () => linearApi.getIssues({ first: 100 }).then((r) => r.data),
+    enabled: open,
+  });
 
   const previewMutation = useMutation({
     mutationFn: (idOrUrl: string) => linearApi.previewIssue(idOrUrl).then((r) => r.data),
@@ -99,6 +114,7 @@ export function CreatePreparationDocModal({ open, onClose }: CreatePreparationDo
 
   const handleClose = () => {
     setLinearInput('');
+    setSelectedIssueId('');
     setClientName('');
     setRole('');
     setBrokerRequest('');
@@ -119,7 +135,16 @@ export function CreatePreparationDocModal({ open, onClose }: CreatePreparationDo
 
   const handlePreview = () => {
     if (!linearInput.trim()) return;
+    setSelectedIssueId('');
     previewMutation.mutate(linearInput.trim());
+  };
+
+  const handleSelectIssue = (id: string | null) => {
+    if (!id) return;
+    setSelectedIssueId(id);
+    setLinearInput('');
+    // id вакансии Linear — UUID, previewIssue его принимает и заполняет поля.
+    previewMutation.mutate(id);
   };
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -183,8 +208,35 @@ export function CreatePreparationDocModal({ open, onClose }: CreatePreparationDo
           <section className="space-y-1.5">
             <Label className="text-sm font-medium text-slate-700">
               Linear ticket{' '}
-              <span className="text-slate-400 font-normal">— URL or ID (LIN-1234)</span>
+              <span className="text-slate-400 font-normal">— pick from the list or paste a URL / ID</span>
             </Label>
+
+            {/* Выпадающий список всех актуальных тикетов Linear */}
+            <Select
+              value={selectedIssueId || undefined}
+              onValueChange={handleSelectIssue}
+              disabled={previewMutation.isPending}
+            >
+              <SelectTrigger className="w-full bg-slate-50 border-slate-200 focus-visible:bg-white">
+                <SelectValue
+                  placeholder={issuesLoading ? 'Loading tickets…' : 'Select a ticket…'}
+                />
+              </SelectTrigger>
+              <SelectContent className="max-h-72">
+                {(linearIssues ?? []).map((issue) => (
+                  <SelectItem key={issue.id} value={issue.id}>
+                    {issue.title}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <div className="flex items-center gap-2">
+              <span className="h-px flex-1 bg-slate-200" />
+              <span className="text-xs text-slate-400">or by URL / ID</span>
+              <span className="h-px flex-1 bg-slate-200" />
+            </div>
+
             <div className="flex gap-2">
               <Input
                 value={linearInput}
