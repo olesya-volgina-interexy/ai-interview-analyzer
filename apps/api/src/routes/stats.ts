@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../db/prisma';
 import { clusterTextItems } from '../services/llm.service';
+import { getIssuesForStats } from '../services/linear.service';
 import { redis } from '../db/redis';
 
 const CACHE_TTL = 60 * 30; // 30 минут
@@ -29,7 +30,7 @@ export async function statsRoutes(fastify: FastifyInstance) {
       }
     }
 
-    const [requests, interviews, allInterviewsForTiming, allIncomingRequests, historyInPeriod] = await Promise.all([
+    const [requests, interviews, allInterviewsForTiming, allIncomingRequests, historyInPeriod, linearIssues] = await Promise.all([
       prisma.incomingRequest.findMany({
         where: { receivedAt: { gte: fromDate, lte: toDate } },
         select: { status: true, clientName: true, role: true, externalFeedback: true, cvSentCount: true },
@@ -52,21 +53,25 @@ export async function statsRoutes(fastify: FastifyInstance) {
         select: { incomingRequestId: true, status: true, enteredAt: true },
         orderBy: { enteredAt: 'asc' },
       }),
+      // Карточка "Incoming requests" считается напрямую из Linear (источник
+      // правды), а не из зеркала IncomingRequest — иначе цифры недосчитываются
+      // из-за пропущенных вебхуков и устаревших статусов.
+      getIssuesForStats({ from: fromDate, to: toDate }),
     ]);
 
-    // Requests stats
-    const byStatus = requests.reduce((acc, r) => {
-      acc[r.status] = (acc[r.status] ?? 0) + 1;
+    // Requests stats — из живых данных Linear (фильтр по issue.createdAt в периоде)
+    const byStatus = linearIssues.reduce((acc, i) => {
+      acc[i.status] = (acc[i.status] ?? 0) + 1;
       return acc;
     }, {} as Record<string, number>);
 
-    const byClient = requests.reduce((acc, r) => {
-      if (r.clientName) acc[r.clientName] = (acc[r.clientName] ?? 0) + 1;
+    const byClient = linearIssues.reduce((acc, i) => {
+      if (i.clientName) acc[i.clientName] = (acc[i.clientName] ?? 0) + 1;
       return acc;
     }, {} as Record<string, number>);
 
-    const byRole = requests.reduce((acc, r) => {
-      if (r.role) acc[r.role] = (acc[r.role] ?? 0) + 1;
+    const byRole = linearIssues.reduce((acc, i) => {
+      if (i.role) acc[i.role] = (acc[i.role] ?? 0) + 1;
       return acc;
     }, {} as Record<string, number>);
 
@@ -79,7 +84,7 @@ export async function statsRoutes(fastify: FastifyInstance) {
     const hired = interviews.filter(i => i.decision === 'hired').length;
     const rejected = interviews.filter(i => i.decision === 'rejected').length;
     const onHold = requests.filter(r => r.status === 'on_hold').length;
-    const total = requests.length;
+    const total = linearIssues.length;
 
     // ── Timing stats ──────────────────────────────────────────────────────
     const byIssue = allInterviewsForTiming.reduce((acc, i) => {

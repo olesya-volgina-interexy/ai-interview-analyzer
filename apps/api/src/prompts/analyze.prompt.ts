@@ -83,6 +83,20 @@ Extract EVERY question/answer exchange. Look for:
 - Soft/personal: "what do you like?", "where do you get energy?"
 - Candidate reverse questions: "how does your team work?", "what tools do you use?"
 
+COMPLETENESS — THIS IS CRITICAL. Read mistakes here are the #1 failure of this task:
+- Walk the transcript top to bottom, in chronological order, and emit one entry the
+  moment you encounter ANY question. Do NOT read ahead, summarize, then write a short list.
+- Output EVERY distinct exchange as its OWN entry. NEVER merge several questions into one,
+  and NEVER collapse a multi-turn topic into a single "headline" entry. A follow-up like
+  "can you give an example?" or "but why?" is a SEPARATE entry from the question before it,
+  even on the same topic.
+- Do NOT cap, sample, or skip "minor" questions. There is no maximum — return as many as exist.
+- Reality check before you finish: a typical 30-60 minute technical interview contains roughly
+  10-40 question/answer exchanges. If your list has only a handful (e.g. < 8) for a transcript
+  of this length, you have UNDER-extracted — re-scan and add the ones you skipped.
+- The ONLY exchanges you skip are pure personal introductions with no concrete subject
+  (see the topic rule below). Everything else gets an entry.
+
 For each, output:
   speaker, timestamp (or "[NO_TIMESTAMP]"), quote (exact),
   direction ("interviewer_to_candidate" | "candidate_to_interviewer"),

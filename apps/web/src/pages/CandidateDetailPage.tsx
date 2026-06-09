@@ -247,7 +247,7 @@ export function CandidateDetailPage() {
                     onClick={() => setSelectedId(i.id)}
                     className="hover:bg-slate-50 cursor-pointer transition-colors"
                   >
-                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{formatDate(i.createdAt)}</td>
+                    <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{formatDate(i.analysisDate ?? i.createdAt)}</td>
                     <td className="px-3 py-2 text-slate-600">{STAGE_LABEL[i.stage] ?? i.stage}</td>
                     <td className="px-3 py-2 text-slate-600">{i.role} <span className="text-slate-400">{i.level}</span></td>
                     <td className="px-3 py-2 text-slate-600 truncate">{i.clientName ?? '—'}</td>

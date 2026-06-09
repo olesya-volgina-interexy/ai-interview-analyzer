@@ -148,6 +148,104 @@ async function linearGraphQL<T>(
   return json.data;
 }
 
+// ── Статистика: все issues за период с их текущим статусом ────────────────
+// Считаем напрямую из Linear (источник правды), чтобы цифры не «уплывали»
+// от локального зеркала IncomingRequest, которое обновляется только вебхуками.
+
+// Маппинг названия workflow-стейта Linear → внутренний ключ статуса.
+// Ключи совпадают с теми, что использует фронт (RequestsStatsCard).
+// Сопоставление регистронезависимое: в Linear стейт называется 'On hold',
+// а не 'On Hold', и т.п.
+const LINEAR_STATE_TO_STATUS: Record<string, string> = {
+  'triage': 'triage',
+  'in progress': 'in_progress',
+  "broker's call": 'manager_call',
+  'tech call': 'technical',
+  'hired': 'hired',
+  'lost': 'lost',
+  'on hold': 'on_hold',
+  'backlog': 'backlog',
+  'duplicate': 'duplicate',
+};
+
+function mapStateToStatus(stateName: string): string {
+  const key = stateName.trim().toLowerCase();
+  return LINEAR_STATE_TO_STATUS[key] ?? key.replace(/[^a-z0-9]+/g, '_');
+}
+
+export interface LinearStatsIssue {
+  id: string;
+  status: string;
+  role: string;
+  clientName: string | null;
+  createdAt: string;
+}
+
+// Тянем ВСЕ issues, созданные в периоде, с курсорной пагинацией.
+// Без пагинации Linear отдаёт только первые 50 — это и было причиной недосчёта.
+export async function getIssuesForStats(opts: {
+  from: Date;
+  to: Date;
+}): Promise<LinearStatsIssue[]> {
+  const query = `
+    query GetIssuesForStats($after: String, $filter: IssueFilter) {
+      issues(first: 100, after: $after, filter: $filter, orderBy: createdAt) {
+        nodes {
+          id
+          title
+          createdAt
+          state { name }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  `;
+
+  const filter = {
+    createdAt: {
+      gte: opts.from.toISOString(),
+      lte: opts.to.toISOString(),
+    },
+  };
+
+  const issues: LinearStatsIssue[] = [];
+  let after: string | null = null;
+
+  // guard — защита от бесконечного цикла (100 страниц × 100 = 10 000 issues)
+  for (let page = 0; page < 100; page++) {
+    const data = await linearGraphQL<{
+      issues: {
+        nodes: Array<{
+          id: string;
+          title: string | null;
+          createdAt: string;
+          state: { name: string } | null;
+        }>;
+        pageInfo: { hasNextPage: boolean; endCursor: string | null };
+      };
+    }>(query, { after, filter });
+
+    for (const issue of data.issues.nodes) {
+      const { role, clientName } = parseIssueTitle(issue.title ?? '');
+      issues.push({
+        id: issue.id,
+        status: mapStateToStatus(issue.state?.name ?? 'unknown'),
+        role,
+        clientName,
+        createdAt: issue.createdAt,
+      });
+    }
+
+    if (!data.issues.pageInfo.hasNextPage) break;
+    after = data.issues.pageInfo.endCursor;
+  }
+
+  return issues;
+}
+
 // ── Получить все комментарии тикета с parent.id через GraphQL ──────────────
 
 export async function getIssueComments(issueId: string): Promise<LinearComment[]> {
