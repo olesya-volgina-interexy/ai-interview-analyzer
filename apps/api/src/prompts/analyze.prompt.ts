@@ -23,8 +23,8 @@ Client: ${meta.clientName ?? 'not specified'}
 Decision: ${meta.decision === 'hired' ? 'PASSED' : meta.decision === 'rejected' ? 'REJECTED' : 'NOT PROVIDED'}
 Comments: ${meta.interviewerComments ?? 'not provided'}
 
-TASKS: Evaluate communication, motivation, cultural fit, salary expectations, soft skills.
-Detect: question avoidance, vague answers, salary gaps, CV inconsistencies.
+TASKS: Evaluate communication, motivation, cultural fit, soft skills.
+Detect: question avoidance, vague answers, CV inconsistencies.
 `.trim();
 }
 
@@ -218,8 +218,8 @@ Scan EVERY candidate answer for these flags. Do not skip — if none apply, outp
     inappropriate context, repeatedly interrupted, etc. Severity: medium if
     interviewer had to ask once; high if multiple reminders were needed.
 
-  "other" — anything else worth flagging. Name the type specifically (e.g. "salary_mismatch",
-    "availability_concern", "scope_creep_history").
+  "other" — anything else worth flagging. Name the type specifically (e.g. "availability_concern",
+    "scope_creep_history", "relocation_concern").
 
 For each: { "type":"<one of above>", "evidence":"<exact quote or close paraphrase>",
             "severity":"low|medium|high" }
@@ -378,7 +378,7 @@ Return ONLY valid JSON, no markdown wrapper.
 export const MANAGER_CALL_JSON_SCHEMA = `{
   "stage": "manager_call",
   "overallImpression": "2-3 sentences",
-  "softSkills": { "communication":"", "motivation":"", "cultureFit":"", "salaryExpectations":"", "clarityOfThought":"" },
+  "softSkills": { "communication":"", "motivation":"", "cultureFit":"", "clarityOfThought":"" },
   "strengths": [], "weaknesses": [], "risks": [],
   "brokerSoftFit": { "coveredRequirements":[], "missingRequirements":[], "fitSummary":"" },
   "stageResult": "passed|rejected|on_hold",

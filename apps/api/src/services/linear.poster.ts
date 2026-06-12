@@ -81,7 +81,6 @@ ${analysis.overallImpression}
 - **Communication:** ${analysis.softSkills.communication}
 - **Motivation:** ${analysis.softSkills.motivation}
 - **Culture Fit:** ${analysis.softSkills.cultureFit}
-- **Salary Expectations:** ${analysis.softSkills.salaryExpectations}
 - **English / Clarity:** ${analysis.softSkills.clarityOfThought}
 
 ### ✅ Strengths

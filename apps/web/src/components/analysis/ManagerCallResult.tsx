@@ -1,6 +1,6 @@
 import type { ManagerCallAnalysis } from '@shared/schemas';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { MessageSquare, Zap, Users, DollarSign, Brain } from 'lucide-react';
+import { MessageSquare, Zap, Users, Brain } from 'lucide-react';
 
 const RESULT_STYLE: Record<string, { bg: string; color: string }> = {
   passed:   { bg: '#E6F1FB', color: '#185FA5' },
@@ -48,7 +48,6 @@ const SOFT_SKILLS_CONFIG: Record<string, { icon: React.ReactNode; bg: string; co
   'Communication':      { icon: <MessageSquare size={14} />, bg: '#E6F1FB', color: '#185FA5' },
   'Motivation':         { icon: <Zap size={14} />,           bg: '#EAF3DE', color: '#3B6D11' },
   'Culture Fit':        { icon: <Users size={14} />,         bg: '#EEEDFE', color: '#534AB7' },
-  'Salary Expectations':{ icon: <DollarSign size={14} />,    bg: '#FAEEDA', color: '#854F0B' },
   'Clarity of Thought': { icon: <Brain size={14} />,         bg: '#E1F5EE', color: '#0F6E56' },
 };
 
@@ -131,9 +130,6 @@ export function ManagerCallResult({ analysis }: { analysis: ManagerCallAnalysis 
             <SoftSkillCard label="Motivation" value={analysis.softSkills.motivation} />
             <SoftSkillCard label="Culture Fit" value={analysis.softSkills.cultureFit} />
             <SoftSkillCard label="Clarity of Thought" value={analysis.softSkills.clarityOfThought} />
-            <div className="sm:col-span-2">
-              <SoftSkillCard label="Salary Expectations" value={analysis.softSkills.salaryExpectations} />
-            </div>
           </div>
         </TabsContent>
 
