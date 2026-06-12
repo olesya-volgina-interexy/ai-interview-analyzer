@@ -11,13 +11,23 @@ interface TimingData {
   trend: Array<{ month: string; count: number }>;
 }
 
+// Each bar is the time to MOVE INTO a stage (= time spent in the previous one),
+// so the funnel ends at the time it takes to go from Tech Call to Hired.
 const STAGE_FLOW: Array<{ key: string; label: string; color: string }> = [
-  { key: 'triage', label: 'Triage', color: '#94A3B8' },
-  { key: 'in_progress', label: 'In Progress', color: '#60A5FA' },
-  { key: 'client_review', label: 'Client Review', color: '#38BDF8' },
-  { key: 'manager_call', label: "Broker's Call", color: '#2DD4BF' },
-  { key: 'technical', label: 'Tech Call', color: '#A78BFA' },
+  { key: 'triage', label: 'In Progress', color: '#60A5FA' },
+  { key: 'in_progress', label: 'Client Review', color: '#38BDF8' },
+  { key: 'client_review', label: "Broker's Call", color: '#2DD4BF' },
+  { key: 'manager_call', label: 'Tech Call', color: '#A78BFA' },
+  { key: 'hired', label: 'Hired', color: '#10B981' },
 ];
+
+function formatDuration(days: number | null | undefined): string {
+  if (days == null) return '—';
+  if (days >= 1) return `${Math.round(days)}d`;
+  const hours = days * 24;
+  if (hours >= 1) return `${Math.round(hours)}h`;
+  return `${Math.max(Math.round(hours * 60), 1)}m`;
+}
 
 function StageProgressBar({ perStage }: { perStage?: Record<string, number | null> }) {
   const data = perStage ?? {};
@@ -41,7 +51,7 @@ function StageProgressBar({ perStage }: { perStage?: Record<string, number | nul
         {segments.map(s => (
           <div
             key={s.key}
-            title={`${s.label}: ${s.days} days`}
+            title={`${s.label}: ${formatDuration(s.days)}`}
             style={{ width: `${(s.days / total) * 100}%`, background: s.color }}
           />
         ))}
@@ -54,7 +64,7 @@ function StageProgressBar({ perStage }: { perStage?: Record<string, number | nul
               <span className="inline-block h-2 w-2 rounded-full" style={{ background: s.color }} />
               <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>{s.label}</span>
               <span className="ml-auto text-xs font-medium" style={{ color: 'var(--color-text-primary)' }}>
-                {days !== null && days !== undefined ? `${days}d` : '—'}
+                {formatDuration(days)}
               </span>
             </div>
           );
