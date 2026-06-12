@@ -565,6 +565,7 @@ function PreparationTab() {
   const [dateFilter, setDateFilter] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState<PreparationItem | null>(null);
+  const [prepDocModalOpen, setPrepDocModalOpen] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
@@ -672,13 +673,24 @@ function PreparationTab() {
 
         <div className="flex-1" />
         <button
+          onClick={() => setPrepDocModalOpen(true)}
+          className="h-9 px-4 rounded-lg text-sm font-medium text-white flex items-center gap-2 bg-[#5067F4] hover:bg-[#3d52d9] transition-colors"
+        >
+          <FileText size={14} />
+          Create prep doc
+        </button>
+        <button
           onClick={() => setModalOpen(true)}
-          className="h-9 px-4 rounded-lg text-sm font-medium text-white flex items-center gap-2 transition-colors hover:opacity-90"
-          style={{ background: '#534AB7' }}
+          className="h-9 px-4 rounded-lg text-sm font-medium text-white flex items-center gap-2 bg-[#5067F4] hover:bg-[#3d52d9] transition-colors"
         >
           + New Preparation
         </button>
       </div>
+
+      <CreatePreparationDocModal
+        open={prepDocModalOpen}
+        onClose={() => setPrepDocModalOpen(false)}
+      />
 
       <PreparationModal
         open={modalOpen}
@@ -979,7 +991,6 @@ export function CandidatesPage() {
   const [resultFilter, setResultFilter] = useState('');
   const [sortKey, setSortKey] = useState<'totalInterviews' | 'avgScore' | 'lastInterviewAt'>('lastInterviewAt');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [prepDocModalOpen, setPrepDocModalOpen] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 300);
@@ -1028,11 +1039,6 @@ export function CandidatesPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Candidates</h1>
       </div>
-
-      <CreatePreparationDocModal
-        open={prepDocModalOpen}
-        onClose={() => setPrepDocModalOpen(false)}
-      />
 
       <div className="flex gap-1 border-b border-slate-200">
         <button
@@ -1118,15 +1124,6 @@ export function CandidatesPage() {
               <X size={12} /> Clear
             </button>
           )}
-
-          <Button
-            onClick={() => setPrepDocModalOpen(true)}
-            className="ml-auto h-8 gap-2 text-sm"
-            style={{ background: '#534AB7' }}
-          >
-            <FileText size={14} />
-            Create prep doc
-          </Button>
         </div>
 
       {isLoading ? (
