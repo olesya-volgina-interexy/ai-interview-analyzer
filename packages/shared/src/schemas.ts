@@ -219,7 +219,13 @@ export const AuthUserSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email(),
   name: z.string().nullable(),
+  jobTitle: z.string().nullable(),
   role: z.string(),
+});
+
+export const UpdateProfileRequestSchema = z.object({
+  name: z.string().min(1),
+  jobTitle: z.string().max(120).optional(),
 });
 
 export const LoginRequestSchema = z.object({
@@ -236,6 +242,22 @@ export const LoginResponseSchema = z.object({
 
 export const RefreshRequestSchema = z.object({
   refreshToken: z.string(),
+});
+
+export const RegisterRequestSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+  name: z.string().min(1).optional(),
+});
+
+export const ChangePasswordRequestSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8),
+});
+
+export const AdminResetPasswordRequestSchema = z.object({
+  email: z.string().email(),
+  newPassword: z.string().min(8),
 });
 
 export type FinalResultAnalysis = z.infer<typeof FinalResultAnalysisSchema>;
@@ -258,3 +280,7 @@ export type AuthUser = z.infer<typeof AuthUserSchema>;
 export type LoginRequest = z.infer<typeof LoginRequestSchema>;
 export type LoginResponse = z.infer<typeof LoginResponseSchema>;
 export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;
+export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
+export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>;
+export type ChangePasswordRequest = z.infer<typeof ChangePasswordRequestSchema>;
+export type AdminResetPasswordRequest = z.infer<typeof AdminResetPasswordRequestSchema>;

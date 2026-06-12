@@ -10,11 +10,14 @@ const ClientsPage = lazy(() => import('./pages/ClientsPage').then(m => ({ defaul
 const ClientDetailPage = lazy(() => import('./pages/ClientDetailPage').then(m => ({ default: m.ClientDetailPage })));
 const PreparationDocPage = lazy(() => import('./pages/PreparationDocPage').then(m => ({ default: m.PreparationDocPage })));
 const LoginPage = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
+const RegisterPage = lazy(() => import('./pages/RegisterPage').then(m => ({ default: m.RegisterPage })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 
 const rootRoute = createRootRoute({
   beforeLoad: ({ location }) => {
     const token = localStorage.getItem('accessToken');
-    if (!token && location.pathname !== '/login') {
+    const publicPaths = ['/login', '/register'];
+    if (!token && !publicPaths.includes(location.pathname)) {
       throw redirect({ to: '/login' });
     }
   },
@@ -31,6 +34,12 @@ const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
   component: LoginPage,
+});
+
+const registerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/register',
+  component: RegisterPage,
 });
 
 const dashboardRoute = createRoute({
@@ -75,8 +84,15 @@ const preparationDocRoute = createRoute({
   component: PreparationDocPage,
 });
 
+const settingsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/settings',
+  component: SettingsPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  registerRoute,
   dashboardRoute,
   interviewsRoute,
   candidatesRoute,
@@ -84,6 +100,7 @@ const routeTree = rootRoute.addChildren([
   clientsRoute,
   clientDetailRoute,
   preparationDocRoute,
+  settingsRoute,
 ]);
 
 export const router = createRouter({ routeTree });

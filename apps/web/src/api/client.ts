@@ -1,5 +1,5 @@
 import axios, { AxiosError, type InternalAxiosRequestConfig } from 'axios';
-import type { AnalyzeRequest, CandidateAnalysis, ClientInsights, PreparationDoc, GeneratePreparationDocRequest } from '@shared/schemas';
+import type { AnalyzeRequest, CandidateAnalysis, ClientInsights, PreparationDoc, GeneratePreparationDocRequest, ChangePasswordRequest, AdminResetPasswordRequest, UpdateProfileRequest, AuthUser } from '@shared/schemas';
 
 const BASE_URL = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api`
@@ -146,6 +146,17 @@ export const analyzeApi = {
 
   getStatus: (jobId: string) =>
     api.get<JobStatus>(`/analyze/${jobId}/status`),
+};
+
+export const authApi = {
+  updateProfile: (data: UpdateProfileRequest) =>
+    api.patch<AuthUser>('/auth/profile', data),
+
+  changePassword: (data: ChangePasswordRequest) =>
+    api.post<{ success: boolean }>('/auth/change-password', data),
+
+  adminResetPassword: (data: AdminResetPasswordRequest) =>
+    api.post<{ success: boolean; email: string }>('/auth/admin/reset-password', data),
 };
 
 export const interviewsApi = {
