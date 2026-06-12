@@ -25,6 +25,7 @@
     "fastify": "^4.28.0",
     "fastify-plugin": "^5.1.0",
     "ioredis": "^5.4.1",
+    "markdown-it": "^14.2.0",
     "openai": "^4.52.0",
     "pdf-parse": "^1.1.1",
     "puppeteer": "^24.40.0",
@@ -32,6 +33,7 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^3.0.0",
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "^20.14.0",
     "@types/pdf-parse": "^1.1.4",
     "prisma": "^5.15.0",

@@ -8,6 +8,8 @@ export interface PreparationJobData {
   preparationDocId: string;
   candidateName: string;
   clientName: string;
+  role?: string;
+  linearIssueId?: string;
   cvText?: string;
   cvUrl?: string;
   brokerRequest?: string;
@@ -43,13 +45,16 @@ export const preparationWorker = new Worker<PreparationJobData>(
       const { markdown, sourceInterviewIds } = await generatePreparationDoc({
         candidateName,
         clientName,
+        role: job.data.role,
+        linearIssueId: job.data.linearIssueId,
         cvText,
         cvUrl,
         brokerRequest,
         onProgress: async (stage) => {
-          if (stage === 'context') await job.updateProgress(30);
-          else if (stage === 'rag') await job.updateProgress(50);
-          else if (stage === 'llm') await job.updateProgress(60);
+          if (stage === 'context') await job.updateProgress(25);
+          else if (stage === 'cv') await job.updateProgress(45);
+          else if (stage === 'client') await job.updateProgress(65);
+          else if (stage === 'llm') await job.updateProgress(85);
         },
       });
 

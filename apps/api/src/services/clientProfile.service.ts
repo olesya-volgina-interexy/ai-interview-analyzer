@@ -156,10 +156,24 @@ export async function buildClientProfile(clientName: string): Promise<ClientInsi
     generatedAt: new Date().toISOString(),
   };
 
-  await prisma.client.update({
-    where: { name: clientName },
-    data: { insights: profile },
-  });
+  // Клиента может не быть в таблице Client (manual preparation doc flow).
+  // В этом случае просто не кешируем insights — расчёт всё равно вернётся вызывающему.
+  try {
+    await prisma.client.update({
+      where: { name: clientName },
+      data: { insights: profile },
+    });
+  } catch (err) {
+    const code = (err as { code?: string })?.code;
+    if (code !== 'P2025') {
+      // P2025 = record to update not found. Любая другая ошибка — это уже неожиданное,
+      // логируем и продолжаем — профиль уже посчитан, вернём его.
+      console.warn('[clientProfile] failed to cache insights', {
+        clientName,
+        code,
+      });
+    }
+  }
 
   return profile;
 }

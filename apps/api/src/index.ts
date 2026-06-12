@@ -16,6 +16,7 @@ import './workers/analyze.worker';
 import './workers/preparation.worker';
 import { linearWebhookRoutes } from './routes/webhooks/linear';
 import { verifyLinearAuth } from './services/linear.service';
+import { shutdownPdfService } from './services/pdf.service';
 import { registerAuth } from './middleware/auth';
 import { registerRateLimit } from './middleware/rateLimit';
 
@@ -92,6 +93,7 @@ start();
 const shutdown = async () => {
   app.log.info('Shutting down...');
   await app.close();
+  await shutdownPdfService();
   await prisma.$disconnect();
   process.exit(0);
 };

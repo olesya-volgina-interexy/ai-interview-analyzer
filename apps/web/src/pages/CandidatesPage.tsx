@@ -4,9 +4,9 @@ import { useNavigate } from '@tanstack/react-router';
 import { candidatesApi, interviewsApi, pipelineCandidatesApi, linearApi, preparationsApi, type PipelineCandidateItem, type PreparationItem } from '@/api/client';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-
-import { Search, X, Phone, MessageSquare, Settings, Pencil, Trash2 } from 'lucide-react';
+import { Search, X, FileText, Phone, MessageSquare, Settings, Pencil, Trash2 } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -15,7 +15,7 @@ import {
   DialogDescription,
   DialogClose,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import { CreatePreparationDocModal } from '@/components/modals/CreatePreparationDocModal';
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-GB', {
@@ -565,6 +565,7 @@ function PreparationTab() {
   const [dateFilter, setDateFilter] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState<PreparationItem | null>(null);
+  const [prepDocModalOpen, setPrepDocModalOpen] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
@@ -672,13 +673,24 @@ function PreparationTab() {
 
         <div className="flex-1" />
         <button
+          onClick={() => setPrepDocModalOpen(true)}
+          className="h-9 px-4 rounded-lg text-sm font-medium text-white flex items-center gap-2 bg-[#5067F4] hover:bg-[#3d52d9] transition-colors"
+        >
+          <FileText size={14} />
+          Create prep doc
+        </button>
+        <button
           onClick={() => setModalOpen(true)}
-          className="h-9 px-4 rounded-lg text-sm font-medium text-white flex items-center gap-2 transition-colors hover:opacity-90"
-          style={{ background: '#534AB7' }}
+          className="h-9 px-4 rounded-lg text-sm font-medium text-white flex items-center gap-2 bg-[#5067F4] hover:bg-[#3d52d9] transition-colors"
         >
           + New Preparation
         </button>
       </div>
+
+      <CreatePreparationDocModal
+        open={prepDocModalOpen}
+        onClose={() => setPrepDocModalOpen(false)}
+      />
 
       <PreparationModal
         open={modalOpen}
@@ -1026,7 +1038,6 @@ export function CandidatesPage() {
     <div className="p-4 md:p-6 space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Candidates</h1>
-        {activeTab === 'analyzed' && <span className="text-sm text-slate-400">{data?.length ?? 0} records</span>}
       </div>
 
       <div className="flex gap-1 border-b border-slate-200">

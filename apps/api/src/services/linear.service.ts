@@ -323,3 +323,77 @@ export function extractAttachmentUrl(body: string): string | null {
   const match = body.match(/\[([^\]]+\.(txt|pdf|docx?))\]\((https?:\/\/[^)]+)\)/i);
   return match ? match[3] : null;
 }
+
+// Разрезает description тикета на отдельные вакансии, если их несколько.
+// Признак вакансии — строка вида "<Role> for <Client>" с ключевым словом роли
+// (Consultant/Engineer/Developer/...), стоящая в начале блока (после пустой
+// строки или в самом начале документа).
+//
+// Возвращает [] если нашли 0 или 1 вакансию — в этих случаях вызывающая
+// сторона использует description как есть.
+
+const VACANCY_ROLE_KEYWORDS =
+  /\b(consultant|engineer|developer|manager|designer|specialist|analyst|lead|architect|programmer|qa|tester|devops|administrator|admin|scientist)\b/i;
+
+const VACANCY_TITLE_PATTERN = /^.{3,}\s+for\s+.+$/i;
+
+export function splitVacancies(
+  description: string,
+): Array<{ title: string; content: string }> {
+  if (!description.trim()) return [];
+
+  const lines = description.split(/\r?\n/);
+  const titleIndices: number[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line || line.length > 150) continue;
+
+    const precededByBlank = i === 0 || !lines[i - 1].trim();
+    if (!precededByBlank) continue;
+
+    // Также убедимся, что выше нет ничего, кроме пустых строк, либо
+    // выше есть какое-то содержимое (то есть это не первая строка тикета,
+    // которая может быть пустой prefix).
+    if (
+      VACANCY_TITLE_PATTERN.test(line) &&
+      VACANCY_ROLE_KEYWORDS.test(line)
+    ) {
+      titleIndices.push(i);
+    }
+  }
+
+  if (titleIndices.length < 2) return [];
+
+  return titleIndices.map((startIdx, v) => {
+    const endIdx =
+      v + 1 < titleIndices.length ? titleIndices[v + 1] : lines.length;
+    return {
+      title: lines[startIdx].trim(),
+      content: lines.slice(startIdx + 1, endIdx).join('\n').trim(),
+    };
+  });
+}
+
+// Нормализует ввод пользователя к идентификатору Linear:
+//   - "LIN-1234"                            → "LIN-1234"
+//   - "lin-1234"                            → "LIN-1234"
+//   - "https://linear.app/foo/issue/LIN-1234/slug" → "LIN-1234"
+//   - UUID                                  → UUID как есть
+// Возвращает null, если ничего распознать не удалось.
+export function normalizeIssueIdentifier(input: string): string | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  // UUID — пропускаем как есть (Linear API принимает оба формата).
+  const uuidMatch = trimmed.match(
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+  );
+  if (uuidMatch) return uuidMatch[0];
+
+  // Team-prefix идентификатор: ABC-123, LIN-1234, ENG-42 — где-то в строке.
+  const idMatch = trimmed.match(/\b([A-Z][A-Z0-9_]*-\d+)\b/i);
+  if (idMatch) return idMatch[1].toUpperCase();
+
+  return null;
+}
