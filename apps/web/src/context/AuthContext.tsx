@@ -1,11 +1,13 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import type { AuthUser, LoginRequest } from '@shared/schemas';
+import type { AuthUser, LoginRequest, RegisterRequest } from '@shared/schemas';
 import axios from 'axios';
 
 interface AuthContextValue {
   user: AuthUser | null;
   isLoading: boolean;
   login: (data: LoginRequest) => Promise<void>;
+  register: (data: RegisterRequest) => Promise<void>;
+  setUser: (user: AuthUser) => void;
   logout: () => void;
 }
 
@@ -69,13 +71,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(r.data.user);
   };
 
+  const register = async (data: RegisterRequest) => {
+    const r = await axios.post(`${BASE}/auth/register`, data);
+    localStorage.setItem('accessToken', r.data.accessToken);
+    localStorage.setItem('refreshToken', r.data.refreshToken);
+    setUser(r.data.user);
+  };
+
   const logout = () => {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
     setUser(null);
   };
 
-  return <AuthContext.Provider value={{ user, isLoading, login, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, isLoading, login, register, setUser, logout }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

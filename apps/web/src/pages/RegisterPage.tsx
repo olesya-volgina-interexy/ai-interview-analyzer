@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useNavigate, Link } from '@tanstack/react-router';
+import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 
-export function LoginPage() {
-  const { login } = useAuth();
+export function RegisterPage() {
+  const { register } = useAuth();
   const navigate = useNavigate();
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -16,10 +17,13 @@ export function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      await login({ email, password, rememberMe });
+      await register({ email, password, name: name || undefined });
       navigate({ to: '/' });
-    } catch {
-      setError('Invalid email or password');
+    } catch (err) {
+      const message = axios.isAxiosError(err)
+        ? err.response?.data?.error ?? 'Registration failed'
+        : 'Registration failed';
+      setError(message);
     } finally {
       setLoading(false);
     }
@@ -28,30 +32,28 @@ export function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-4 p-8 border rounded-lg bg-card">
-        <h1 className="text-xl font-semibold">Sign in</h1>
+        <h1 className="text-xl font-semibold">Create account</h1>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <input
-          type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)}
+          type="text" placeholder="Name (optional)" value={name} onChange={e => setName(e.target.value)}
+          className="w-full border rounded px-3 py-2 text-sm bg-background"
+        />
+        <input
+          type="email" placeholder="Work email" value={email} onChange={e => setEmail(e.target.value)}
           required className="w-full border rounded px-3 py-2 text-sm bg-background"
         />
         <input
-          type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)}
-          required className="w-full border rounded px-3 py-2 text-sm bg-background"
+          type="password" placeholder="Password (min. 8 characters)" value={password}
+          onChange={e => setPassword(e.target.value)} required minLength={8}
+          className="w-full border rounded px-3 py-2 text-sm bg-background"
         />
-        <label className="flex items-center gap-2 text-sm select-none cursor-pointer">
-          <input
-            type="checkbox" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)}
-            className="h-4 w-4"
-          />
-          Remember me
-        </label>
         <button type="submit" disabled={loading}
           className="w-full bg-primary text-primary-foreground rounded px-3 py-2 text-sm font-medium disabled:opacity-50">
-          {loading ? 'Signing in…' : 'Sign in'}
+          {loading ? 'Creating account…' : 'Create account'}
         </button>
         <p className="text-sm text-center text-muted-foreground">
-          Don't have an account?{' '}
-          <Link to="/register" className="text-primary font-medium hover:underline">Create one</Link>
+          Already have an account?{' '}
+          <Link to="/login" className="text-primary font-medium hover:underline">Sign in</Link>
         </p>
       </form>
     </div>
