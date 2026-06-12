@@ -314,7 +314,8 @@ export async function upsertIncomingRequest(data: {
 
 export async function updateIncomingRequestStatus(
   linearIssueId: string,
-  status: string
+  status: string,
+  enteredAt?: Date
 ) {
   return prisma.$transaction(async (tx) => {
     const existing = await tx.incomingRequest.findUnique({
@@ -327,8 +328,18 @@ export async function updateIncomingRequestStatus(
       where: { id: existing.id },
       data: {
         status,
-        statusHistory: { create: { status } },
+        statusHistory: { create: { status, ...(enteredAt && { enteredAt }) } },
       },
     });
+  });
+}
+
+// CV отправлен клиенту: считаем количество, но НЕ пишем синтетический cv_sent
+// в статус/историю — тикет физически остаётся в своей колонке Linear, поэтому
+// в Time on Stages должны фигурировать только реальные статусы Linear.
+export async function recordCvSent(linearIssueId: string) {
+  return prisma.incomingRequest.updateMany({
+    where: { linearIssueId },
+    data: { cvSentCount: { increment: 1 } },
   });
 }

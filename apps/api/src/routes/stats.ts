@@ -37,7 +37,7 @@ export async function statsRoutes(fastify: FastifyInstance) {
       }),
       prisma.interview.findMany({
         where: { createdAt: { gte: fromDate, lte: toDate } },
-        select: { stage: true, decision: true, role: true, level: true, analysis: true, createdAt: true, linearIssueId: true },
+        select: { id: true, stage: true, decision: true, role: true, level: true, analysis: true, createdAt: true, linearIssueId: true, parentCommentId: true },
       }),
       prisma.interview.findMany({
         where: { linearIssueId: { not: null } },
@@ -78,10 +78,22 @@ export async function statsRoutes(fastify: FastifyInstance) {
     // Pipeline stats
     const reachedCvSent = requests.filter(r => r.status === 'cv_sent' || r.cvSentCount > 0).length;
     const totalCvSent = requests.reduce((sum, r) => sum + (r.cvSentCount ?? 0), 0);
-    const reachedManagerCall = interviews.filter(i => i.stage === 'manager_call').length;
-    const reachedTechnical = interviews.filter(i => i.stage === 'technical').length;
-    const reachedFinalResult = interviews.filter(i => i.stage === 'final_result').length;
-    const hired = interviews.filter(i => i.decision === 'hired').length;
+
+    // Collapse each candidate (issue + root-comment thread) to the furthest stage
+    // reached, then count cumulatively so a later stage never outnumbers an earlier one.
+    const STAGE_RANK: Record<string, number> = { manager_call: 1, technical: 2, final_result: 3 };
+    const candidateMaxRank = new Map<string, number>();
+    const hiredCandidates = new Set<string>();
+    for (const i of interviews) {
+      const key = `${i.linearIssueId ?? ''}::${i.parentCommentId ?? i.id}`;
+      candidateMaxRank.set(key, Math.max(candidateMaxRank.get(key) ?? 0, STAGE_RANK[i.stage] ?? 0));
+      if (i.decision === 'hired') hiredCandidates.add(key);
+    }
+    const ranks = [...candidateMaxRank.values()];
+    const reachedManagerCall = ranks.filter(r => r >= 1).length;
+    const reachedTechnical = ranks.filter(r => r >= 2).length;
+    const reachedFinalResult = ranks.filter(r => r >= 3).length;
+    const hired = hiredCandidates.size;
     const rejected = interviews.filter(i => i.decision === 'rejected').length;
     const onHold = requests.filter(r => r.status === 'on_hold').length;
     const total = linearIssues.length;
@@ -114,6 +126,8 @@ export async function statsRoutes(fastify: FastifyInstance) {
     }
 
     const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null;
+    // Per-stage durations keep fractional days so the UI can render sub-day gaps as hours.
+    const avgPrecise = (arr: number[]) => arr.length > 0 ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 1000) / 1000 : null;
 
     // ── Time On Stage по истории статусов ─────────────────────────────────
     const historyByRequest = historyInPeriod.reduce((acc, h) => {
@@ -124,6 +138,7 @@ export async function statsRoutes(fastify: FastifyInstance) {
 
     const stageDurations: Record<string, number[]> = {};
     const daysToHired: number[] = [];
+    const techToHired: number[] = [];
     const DAY_MS = 86_400_000;
 
     for (const entries of Object.values(historyByRequest)) {
@@ -140,11 +155,18 @@ export async function statsRoutes(fastify: FastifyInstance) {
       if (hiredEntry && entries.length > 0) {
         daysToHired.push((hiredEntry.enteredAt.getTime() - entries[0].enteredAt.getTime()) / DAY_MS);
       }
+
+      // Tech Call → Hired: финальный шаг воронки, только по реально нанятым
+      const techEntry = entries.find(e => e.status === 'technical');
+      if (techEntry && hiredEntry && hiredEntry.enteredAt.getTime() >= techEntry.enteredAt.getTime()) {
+        techToHired.push((hiredEntry.enteredAt.getTime() - techEntry.enteredAt.getTime()) / DAY_MS);
+      }
     }
 
-    const avgTimePerStage = Object.fromEntries(
-      Object.entries(stageDurations).map(([status, arr]) => [status, avg(arr)])
+    const avgTimePerStage: Record<string, number | null> = Object.fromEntries(
+      Object.entries(stageDurations).map(([status, arr]) => [status, avgPrecise(arr)])
     );
+    avgTimePerStage.hired = avgPrecise(techToHired);
 
     // Тренд по месяцам
     const trendMap = interviews.reduce((acc, i) => {
@@ -239,7 +261,7 @@ export async function statsRoutes(fastify: FastifyInstance) {
           managerCallToTechnical: reachedManagerCall > 0
             ? Math.round((reachedTechnical / reachedManagerCall) * 100) : 0,
           technicalToHired: reachedTechnical > 0
-            ? Math.round((hired / reachedTechnical) * 100) : 0,
+            ? Math.min(100, Math.round((hired / reachedTechnical) * 100)) : 0,
         },
       },
       timing: {

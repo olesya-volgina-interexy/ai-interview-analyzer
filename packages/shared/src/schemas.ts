@@ -40,7 +40,6 @@ export const ManagerCallAnalysisSchema = z.object({
     communication: z.string(),                   // качество коммуникации
     motivation: z.string(),                      // мотивация кандидата
     cultureFit: z.string(),                      // соответствие культуре клиента
-    salaryExpectations: z.string(),              // зарплатные ожидания vs запрос
     clarityOfThought: z.string(),                // чёткость мышления и речи
   }),
   strengths: z.array(z.string()),

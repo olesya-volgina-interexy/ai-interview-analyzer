@@ -11,7 +11,7 @@ import {
 import { extractCVText, detectLevelFromCV, extractNameFromCV, extractNameFromTranscript  } from '../../services/cv.service';
 import { analyzeQueue } from '../../workers/analyze.worker';
 import { buildWebhookJobId } from '../../utils/dedup';
-import { getExistingAnalysesForIssue, upsertIncomingRequest, updateIncomingRequestStatus } from '../../db/db.service';
+import { getExistingAnalysesForIssue, upsertIncomingRequest, updateIncomingRequestStatus, recordCvSent } from '../../db/db.service';
 import { prisma } from '../../db/prisma';
 import { redis } from '../../db/redis';
 import { fetchTranscript } from '../../services/bluedot.service';
@@ -89,27 +89,8 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
         const isRootComment = !data.parent?.id;
 
         if (hasCVLink && issueId && isRootComment) {
-          await prisma.incomingRequest.updateMany({
-            where: {
-              linearIssueId: issueId,
-              status: { in: ['new', 'in_progress'] },
-            },
-            data: {
-              status: 'cv_sent',
-              cvSentCount: { increment: 1 },
-            },
-          }).catch(err => fastify.log.warn({ err }, 'Failed to update cv_sent status'));
-
-          // Increment count even if status already beyond cv_sent
-          await prisma.incomingRequest.updateMany({
-            where: {
-              linearIssueId: issueId,
-              status: { notIn: ['new', 'in_progress'] },
-            },
-            data: {
-              cvSentCount: { increment: 1 },
-            },
-          }).catch(err => fastify.log.warn({ err }, 'Failed to increment cv count'));
+          await recordCvSent(issueId)
+            .catch(err => fastify.log.warn({ err }, 'Failed to record cv_sent'));
           if (isRootComment) {
             const cvUrl = extractCVUrl(commentBody);
             if (cvUrl) {
@@ -247,9 +228,11 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
 
         fastify.log.info(`Linear: issue ${issueId} → "${newStatus}"`);
 
-        // Синхронизируем статус IncomingRequest (и пишем строку истории)
+        // Синхронизируем статус IncomingRequest (и пишем строку истории с
+        // реальным временем перехода из Linear, а не моментом обработки вебхука)
         if (LINEAR_STATUS_MAP[newStatus]) {
-          await updateIncomingRequestStatus(issueId, LINEAR_STATUS_MAP[newStatus]);
+          const changedAt = data.updatedAt ? new Date(data.updatedAt) : undefined;
+          await updateIncomingRequestStatus(issueId, LINEAR_STATUS_MAP[newStatus], changedAt);
         }
 
         // Re-evaluate all stages on any analysis-relevant status change —

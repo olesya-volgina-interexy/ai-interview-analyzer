@@ -1,4 +1,3 @@
-import { BarChart, Bar, XAxis, YAxis, Tooltip, Cell, ResponsiveContainer } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface PipelineData {
@@ -15,54 +14,47 @@ interface PipelineData {
   };
 }
 
-const COLORS: Record<string, string> = {
-  'CV Sent': '#06b6d4',
-  'Manager Call': '#3b82f6',
-  'Technical': '#8b5cf6',
-  'Final Result': '#f59e0b',
-  'On Hold': '#94a3b8',
-  'Hired': '#10b981',
-};
-
 export function PipelineFunnelChart({ pipeline }: { pipeline: PipelineData }) {
-  const data = [
-    { name: 'CV Sent', value: pipeline.reachedCvSent },
-    { name: 'Manager Call', value: pipeline.reachedManagerCall },
-    { name: 'Technical', value: pipeline.reachedTechnical },
-    { name: 'Final Result', value: pipeline.reachedFinalResult },
-    { name: 'On Hold', value: pipeline.onHold },
-    { name: 'Hired', value: pipeline.hired },
-  ].filter(d => d.value > 0);
-
-  if (data.length === 0) return null;
+  const stages = [
+    { key: 'manager_call', label: 'Manager Call', color: '#3b82f6', value: pipeline.reachedManagerCall, conv: null as number | null },
+    { key: 'technical', label: 'Technical', color: '#8b5cf6', value: pipeline.reachedTechnical, conv: pipeline.conversion.managerCallToTechnical },
+    { key: 'hired', label: 'Hired', color: '#10b981', value: pipeline.hired, conv: pipeline.conversion.technicalToHired },
+  ];
+  const max = Math.max(...stages.map(s => s.value), 1);
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">Pipeline Funnel</CardTitle>
+        <CardTitle className="text-sm">Candidate Pipeline</CardTitle>
       </CardHeader>
-      <CardContent>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={data} barSize={40}>
-            <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-            <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={24} />
-            <Tooltip
-              contentStyle={{ fontSize: 12, borderRadius: 6 }}
-              cursor={{ fill: '#f1f5f9' }}
-            />
-            <Bar dataKey="value" name="Candidates" radius={[4, 4, 0, 0]}>
-              {data.map((d, i) => (
-                <Cell key={i} fill={COLORS[d.name] ?? '#94a3b8'} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-        <div className="flex gap-4 mt-3 text-xs text-slate-500 flex-wrap">
-          {pipeline.totalCvSent > 0 && (
-            <span>Total CVs: <b className="text-slate-700">{pipeline.totalCvSent}</b></span>
-          )}
-          <span>→ Technical: <b className="text-slate-700">{pipeline.conversion.managerCallToTechnical}%</b></span>
-          <span>→ Hired: <b className="text-slate-700">{pipeline.conversion.technicalToHired}%</b></span>
+      <CardContent className="space-y-4">
+        <div className="rounded-lg border border-slate-100 bg-slate-50/60 p-3">
+          <p className="text-xs text-slate-500">CVs sent to clients</p>
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-semibold text-slate-900">{pipeline.totalCvSent}</span>
+            <span className="text-xs text-slate-400">
+              across {pipeline.reachedCvSent} {pipeline.reachedCvSent === 1 ? 'vacancy' : 'vacancies'}
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-2.5">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Stages</p>
+          {stages.map(s => (
+            <div key={s.key} className="grid grid-cols-[88px_1fr_1.5rem_2.75rem] items-center gap-3">
+              <span className="text-xs font-medium text-slate-600">{s.label}</span>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className="h-full rounded-full transition-all duration-700 ease-out"
+                  style={{ width: `${(s.value / max) * 100}%`, background: s.color }}
+                />
+              </div>
+              <b className="text-right text-xs tabular-nums text-slate-800">{s.value}</b>
+              <span className="text-right text-xs tabular-nums text-slate-400">
+                {s.conv != null ? `${s.conv}%` : ''}
+              </span>
+            </div>
+          ))}
         </div>
       </CardContent>
     </Card>
