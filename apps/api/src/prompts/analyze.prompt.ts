@@ -62,6 +62,22 @@ For each requirement:
   - priority: "must_have" if listed as required/mandatory/years-of-experience requirement,
               "nice_to_have" if listed as plus/bonus/optional
 
+MERGE RULE: when the broker_request lists BOTH a generic category AND a
+specific instance of that category, output ONE requirement under the more
+specific name — the generic is implied. Without this, covering the specific
+would falsely leave the generic "not assessed".
+
+Examples of pairs to merge:
+  - "AWS" + "Cloud Platforms"        → "AWS (cloud platform)"
+  - "EKS" + "Kubernetes"             → "EKS (Kubernetes)"
+  - "React" + "Frontend frameworks"  → "React (frontend)"
+  - "PostgreSQL" + "SQL databases"   → "PostgreSQL"
+  - "SAP WM" + "Logistics modules"   → "SAP WM"
+
+If the broker explicitly asks for breadth ("AWS AND GCP", "PostgreSQL AND
+MongoDB", "React OR Vue") — keep them separate. Merge only applies when one
+is a strict subset of the other.
+
 Examples:
   broker says "Required: React 18, TypeScript, 3+ years frontend" →
     [{"id":"req-1","skill":"React","priority":"must_have"},
