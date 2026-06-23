@@ -155,7 +155,7 @@ export function DashboardPage() {
               </TabsTrigger>
               <TabsTrigger value={1}>
                 <Filter size={14} />
-                Pipeline
+                Linear
               </TabsTrigger>
               <TabsTrigger value={2}>
                 <Sparkles size={14} />
@@ -175,7 +175,7 @@ export function DashboardPage() {
               )}
             </TabsContent>
 
-            {/* Pipeline Tab — requests, funnel, timeline */}
+            {/* Linear Tab — requests, funnel, timeline */}
             <TabsContent value={1}>
               {overview ? (
                 <div className="space-y-4">

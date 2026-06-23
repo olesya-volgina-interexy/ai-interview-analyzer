@@ -28,6 +28,9 @@ export interface ParsedIssue {
   role: string;
   clientName: string | null;
   brokerRequest: string | null;
+  // Дополнения к запросу брокера из корневых комментариев с #brokers_request.
+  // Накапливаются (append) и подмешиваются к запросу при анализе.
+  brokerRequestSupplement: string | null;
   status: string;
   candidates: CandidateThread[];
 }
@@ -57,12 +60,21 @@ export async function parseIssue(issueId: string): Promise<ParsedIssue> {
     .filter(root => isCandidateThread(root, repliesByParent[root.id] ?? []))
     .map(root => parseCandidateThread(root, repliesByParent[root.id] ?? []));
 
+  // Дополнения к запросу брокера: корневые комментарии с #brokers_request.
+  // Накапливаем все непустые тексты в порядке появления.
+  const brokerRequestSupplement = rootComments
+    .filter(root => root.body.includes('#brokers_request'))
+    .map(root => extractBrokerRequestText(root.body))
+    .filter(text => text.length > 0)
+    .join('\n\n') || null;
+
   return {
     issueId,
     title: issueData.title,
     role: issueData.role,
     clientName: issueData.clientName,
     brokerRequest: issueData.description,
+    brokerRequestSupplement,
     status: issueData.stateName,
     candidates,
   };
@@ -116,6 +128,10 @@ function isCandidateThread(
   root: LinearComment,
   replies: LinearComment[]
 ): boolean {
+  // Коммент-дополнение к запросу брокера — не ветка кандидата.
+  // Иначе его текст (часто содержит "cv"/"resume") ложно матчится ниже.
+  if (root.body.includes('#brokers_request')) return false;
+
   const hasCV = root.body.includes('my.visualcv.com') ||
     root.body.includes('visualcv') ||
     root.body.toLowerCase().includes('cv') ||
@@ -195,6 +211,17 @@ function findCvFileHref(node: any): string | null {
     }
   }
   return null;
+}
+
+// ── Извлечь текст дополнения к запросу брокера ────────────────────────────
+// Срезаем хэштег #brokers_request в обеих формах: голый и markdown-ссылку,
+// которую иногда подставляет Linear ([#brokers_request](<#brokers_request>)).
+
+export function extractBrokerRequestText(body: string): string {
+  return body
+    .replace(/\[#brokers_request\]\(<#brokers_request>\)/g, '')
+    .replace(/#brokers_request/g, '')
+    .trim();
 }
 
 // ── Извлечь имя менеджера из "Manager: Name" ─────────────────────────────

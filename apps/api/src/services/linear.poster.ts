@@ -2,6 +2,14 @@ import { postReply } from './linear.service';
 import type { ManagerCallAnalysis, TechnicalAnalysis } from '@shared/schemas';
 import { describeError } from '../utils/errorLogger';
 
+// Ссылка на детальный анализ кандидата на нашем фронте.
+// Возвращает '' если нет имени кандидата или не задан WEB_APP_URL — тогда коммент остаётся без ссылки.
+function buildAnalysisLink(candidateName?: string): string {
+  const base = process.env.WEB_APP_URL?.replace(/\/+$/, '');
+  if (!base || !candidateName) return '';
+  return `\n\n---\n[View detailed analysis](${base}/candidates/${encodeURIComponent(candidateName)})`;
+}
+
 
 async function postReplyWithRetry(
   issueId: string,
@@ -59,54 +67,27 @@ async function postReplyWithRetry(
 export async function postManagerCallAnalysis(
   issueId: string,
   parentCommentId: string,
-  analysis: ManagerCallAnalysis
+  analysis: ManagerCallAnalysis,
+  matchedVacancyTitle?: string,
+  candidateName?: string,
 ): Promise<void> {
-  const emoji = {
-    passed: '✅',
-    rejected: '❌',
-    on_hold: '⏸️',
-  }[analysis.stageResult] ?? '❓';
+  const vacancyNote = matchedVacancyTitle
+    ? `\n_Evaluated against: **${matchedVacancyTitle}**_\n`
+    : '';
 
   const body = `
-## 🤖 MANAGER CALL ANALYSIS
+## Manager Call Analysis
+${vacancyNote}
+**Result:** ${analysis.stageResult.toUpperCase()}
 
-**Result:** ${emoji} ${analysis.stageResult.toUpperCase()}
-
----
-
-### Overall Impression
-${analysis.overallImpression}
-
-### 💬 Soft Skills
-- **Communication:** ${analysis.softSkills.communication}
-- **Motivation:** ${analysis.softSkills.motivation}
-- **Culture Fit:** ${analysis.softSkills.cultureFit}
-- **Salary Expectations:** ${analysis.softSkills.salaryExpectations}
-- **English / Clarity:** ${analysis.softSkills.clarityOfThought}
-
-### ✅ Strengths
-${analysis.strengths.map(s => `- ${s}`).join('\n')}
-
-### ❌ Weaknesses
-${analysis.weaknesses.map(w => `- ${w}`).join('\n')}
-
-${analysis.risks.length > 0 ? `### ⚠️ Risks\n${analysis.risks.map(r => `- ${r}`).join('\n')}` : ''}
-
-### 🎯 Broker Soft Fit
-- **Covered:** ${analysis.brokerSoftFit.coveredRequirements.join(', ') || '—'}
-- **Missing:** ${analysis.brokerSoftFit.missingRequirements.join(', ') || '—'}
+### Broker Soft Fit
+- Covered: ${analysis.brokerSoftFit.coveredRequirements.join(', ') || '—'}
+- Missing: ${analysis.brokerSoftFit.missingRequirements.join(', ') || '—'}
 - ${analysis.brokerSoftFit.fitSummary}
 
-${analysis.decisionBreakers.length > 0
-  ? `### ❌ Decision Breakers\n${analysis.decisionBreakers.map(d => `- ${d}`).join('\n')}`
-  : ''}
-
-### Reasoning
-${analysis.reasoning}
-
-### 📋 Recommendation for Recruiter
+### Recommendation
 ${analysis.recommendation}
-`.trim();
+`.trim() + buildAnalysisLink(candidateName);
 
   await postReplyWithRetry(issueId, parentCommentId, body);
 }
@@ -116,62 +97,27 @@ ${analysis.recommendation}
 export async function postTechnicalAnalysis(
   issueId: string,
   parentCommentId: string,
-  analysis: TechnicalAnalysis
+  analysis: TechnicalAnalysis,
+  matchedVacancyTitle?: string,
+  candidateName?: string,
 ): Promise<void> {
-  const emoji = {
-    hire: '✅',
-    no_hire: '❌',
-    uncertain: '⚠️',
-  }[analysis.recommendation] ?? '❓';
+  const vacancyNote = matchedVacancyTitle
+    ? `\n_Evaluated against: **${matchedVacancyTitle}**_\n`
+    : '';
 
   const body = `
-## 🤖 TECHNICAL CALL ANALYSIS
-
-**Recommendation:** ${emoji} ${analysis.recommendation.toUpperCase()}
-**Detected Level:** ${analysis.technicalLevel ?? '—'}
+## Technical Call Analysis
+${vacancyNote}
+**Recommendation:** ${analysis.recommendation.toUpperCase()}
+**Level:** ${analysis.technicalLevel ?? '—'}
 **Score:** ${analysis.score}/100
 
----
+**CV Match — ${analysis.cvMatch.cvMatchScore}%**
+**Broker Match — ${analysis.brokerRequestMatch.brokerMatchScore}%**
 
-### Overall Assessment
-${analysis.overallAssessment}
-
-### 📄 CV Match — ${analysis.cvMatch.cvMatchScore}%
-- **Confirmed:** ${analysis.cvMatch.confirmedSkills.join(', ') || '—'}
-- **Failed (tested):** ${analysis.cvMatch.unconfirmedSkills.join(', ') || '—'}
-- **Declared (not assessed):** ${analysis.cvMatch.declaredSkills.filter(s => !analysis.cvMatch.confirmedSkills.includes(s) && !analysis.cvMatch.unconfirmedSkills.includes(s)).join(', ') || '—'}
-${analysis.cvMatch.discrepancies.length > 0
-  ? `- **Discrepancies:** ${analysis.cvMatch.discrepancies.join(', ')}`
-  : ''}
-
-### 🎯 Broker Match — ${analysis.brokerRequestMatch.brokerMatchScore}%
-- **Covered:** ${analysis.brokerRequestMatch.coveredRequirements.join(', ') || '—'}
-- **Missing (tested):** ${analysis.brokerRequestMatch.missingRequirements.join(', ') || '—'}
-- **Not assessed:** ${(analysis.brokerRequestMatch.notAssessedRequirements ?? []).join(', ') || '—'}
-- ${analysis.brokerRequestMatch.brokerFitSummary}
-
-### ✅ Strengths
-${analysis.strengths.map(s => `- ${s}`).join('\n')}
-
-### ❌ Weaknesses
-${analysis.weaknesses.map(w => `- ${w}`).join('\n')}
-
-### 🔧 Technical Skills
-- **Depth of Knowledge:** ${analysis.technicalSkills.depthOfKnowledge}
-- **Problem Solving:** ${analysis.technicalSkills.problemSolving}
-- **System Design:** ${analysis.technicalSkills.systemDesign}
-- **Code Quality:** ${analysis.technicalSkills.codeQuality}
-
-${analysis.decisionBreakers.length > 0
-  ? `### ❌ Decision Breakers\n${analysis.decisionBreakers.map(d => `- ${d}`).join('\n')}`
-  : ''}
-
-### Reasoning
-${analysis.reasoning}
-
-### Role Fit Summary
+### Role Fit
 ${analysis.roleFitSummary}
-`.trim();
+`.trim() + buildAnalysisLink(candidateName);
 
   await postReplyWithRetry(issueId, parentCommentId, body);
 }
@@ -182,42 +128,20 @@ export async function postFinalResult(
   issueId: string,
   parentCommentId: string,
   analysis: any,
-  decision: 'hired' | 'lost'
+  decision: 'hired' | 'lost',
+  candidateName?: string,
 ): Promise<void> {
-  const emoji = decision === 'hired' ? '✅' : '❌';
-
   const body = `
-## 🤖 FINAL RESULT
+## Final Result
 
-**Decision:** ${emoji} ${decision.toUpperCase()}
-
----
-
-### Overall Summary
-${analysis.overallAssessment}
-
-### 💬 Soft Skills Summary
-${analysis.softSkillsSummary}
-
-### 🔧 Technical Skills Summary
-${analysis.technicalSummary}
+**Decision:** ${decision.toUpperCase()}
 
 ### Why ${decision === 'hired' ? 'Hired' : 'Rejected'}
 ${analysis.reasoning}
 
-${analysis.decisionBreakers?.length > 0
-  ? `### ❌ Key Failure Points\n${analysis.decisionBreakers.map((d: string) => `- ${d}`).join('\n')}`
-  : ''}
-
-### ✅ Strengths
-${analysis.strengths.map((s: string) => `- ${s}`).join('\n')}
-
-### ❌ Areas for Improvement
-${analysis.weaknesses.map((w: string) => `- ${w}`).join('\n')}
-
-### 📋 Recommendations
+### Recommendation
 ${analysis.recommendation}
-`.trim();
+`.trim() + buildAnalysisLink(candidateName);
 
   await postReplyWithRetry(issueId, parentCommentId, body);
 }

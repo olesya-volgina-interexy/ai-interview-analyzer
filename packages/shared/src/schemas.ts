@@ -6,16 +6,21 @@ export const InterviewMetaSchema = z.object({
   stage: InterviewStageSchema,
   role: z.string().min(1).max(100),
   level: z.enum(['Junior', 'Middle', 'Senior', 'Architect']),
-  // decision только для technical этапа
+  // deprecated: больше не задаётся ручной формой. Решение (hired/rejected)
+  // теперь выводится из результата анализа LLM в createInterview.
   decision: z.enum(['hired', 'rejected']).optional(),
   clientName: z.string().optional(),
   candidateName: z.string().optional(),
   interviewerComments: z.string().optional(),
   interviewDate: z.string().optional(),
-  krisLink: z.string().url().optional(),
+  // Дата анализа, задаётся пользователем в ручной форме (ISO yyyy-mm-dd).
+  analysisDate: z.string().optional(),
+  // URL-поля допускают пустую строку: незаполненный input в react-hook-form
+  // приходит как "", а z.string().url() на "" падает и молча блокирует submit.
+  krisLink: z.string().url().optional().or(z.literal('')),
   linearIssueId: z.string().optional(),
-  cvUrl: z.string().url().optional(),
-  transcriptUrl: z.string().url().optional(),
+  cvUrl: z.string().url().optional().or(z.literal('')),
+  transcriptUrl: z.string().url().optional().or(z.literal('')),
   brokerRequest: z.string().optional(),
   managerName: z.string().optional(),
 });
@@ -35,7 +40,6 @@ export const ManagerCallAnalysisSchema = z.object({
     communication: z.string(),                   // качество коммуникации
     motivation: z.string(),                      // мотивация кандидата
     cultureFit: z.string(),                      // соответствие культуре клиента
-    salaryExpectations: z.string(),              // зарплатные ожидания vs запрос
     clarityOfThought: z.string(),                // чёткость мышления и речи
   }),
   strengths: z.array(z.string()),
@@ -189,6 +193,12 @@ export const AnalyzeRequestSchema = z.object({
   {
     message: 'Provide either transcript text (min 100 characters) or a transcript URL',
     path: ['transcript'],
+  }
+).refine(
+  data => !!data.meta.cvUrl || !!(data.cvText && data.cvText.trim().length > 0),
+  {
+    message: 'Provide a CV URL or upload a CV file',
+    path: ['cvText'],
   }
 );
 

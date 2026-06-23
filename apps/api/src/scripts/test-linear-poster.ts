@@ -12,12 +12,11 @@ async function main() {
       communication: 'Clear and structured, native-level English',
       motivation: 'Highly motivated, looking for growth opportunities',
       cultureFit: 'Good fit for international team environment',
-      salaryExpectations: '$4000-4200/month, within budget',
       clarityOfThought: 'Excellent, answers are well-structured',
     },
     strengths: ['Strong English', 'Clear communication', 'Relevant experience'],
     weaknesses: ['Notice period 4-5 weeks'],
-    risks: ['Slightly above initial salary budget'],
+    risks: ['Long notice period may delay start'],
     brokerSoftFit: {
       coveredRequirements: ['English B2+', 'Remote work experience'],
       missingRequirements: [],
@@ -26,7 +25,7 @@ async function main() {
     stageResult: 'passed' as const,
     reasoning: 'Candidate demonstrated strong soft skills and motivation.',
     decisionBreakers: [],
-    recommendation: 'Proceed to technical interview. Confirm salary expectations.',
+    recommendation: 'Proceed to technical interview.',
   };
 
   console.log('Posting manager call analysis...');

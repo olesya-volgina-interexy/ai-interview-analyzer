@@ -36,6 +36,7 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
     finalDecision?: 'hired' | 'lost';
     cvUrl?: string;
     brokerRequest?: string;
+    matchedVacancyTitle?: string;
   };
 }>(
   'analyze',
@@ -122,7 +123,8 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
               meta.linearIssueId!,
               parentCommentId,
               analysis,
-              finalDecision ?? 'lost'
+              finalDecision ?? 'lost',
+              meta.candidateName,
             ),
             { op: 'postFinalResult', linearIssueId: meta.linearIssueId, parentCommentId }
           );
@@ -313,16 +315,17 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
     // Шаг 7: Постинг в Linear
     if (meta.linearIssueId && parentCommentId) {
       try {
+        const matchedVacancyTitle = additionalContext?.matchedVacancyTitle;
         if (analysis.stage === 'manager_call') {
           await runStage(
             'linear',
-            () => postManagerCallAnalysis(meta.linearIssueId!, parentCommentId, analysis),
+            () => postManagerCallAnalysis(meta.linearIssueId!, parentCommentId, analysis, matchedVacancyTitle, meta.candidateName),
             { op: 'postManagerCallAnalysis', linearIssueId: meta.linearIssueId, parentCommentId }
           );
         } else if (analysis.stage === 'technical') {
           await runStage(
             'linear',
-            () => postTechnicalAnalysis(meta.linearIssueId!, parentCommentId, analysis),
+            () => postTechnicalAnalysis(meta.linearIssueId!, parentCommentId, analysis, matchedVacancyTitle, meta.candidateName),
             { op: 'postTechnicalAnalysis', linearIssueId: meta.linearIssueId, parentCommentId }
           );
         }

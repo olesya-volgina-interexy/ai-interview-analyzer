@@ -13,3 +13,10 @@ export const llmClient = new OpenAI({
 });
 
 export const LLM_MODEL = process.env.LLM_MODEL ?? 'gpt-4o';
+
+// Step 1 / extraction over the full transcript — needs high TPM headroom so we
+// don't have to truncate. gpt-4.1-mini: ~200k TPM on tier 1, 1M context.
+export const LLM_MODEL_EXTRACTION = process.env.LLM_MODEL_EXTRACTION ?? LLM_MODEL;
+
+// Step 2 / assessment writing — small input, quality matters most.
+export const LLM_MODEL_ASSESSMENT = process.env.LLM_MODEL_ASSESSMENT ?? LLM_MODEL;

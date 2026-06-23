@@ -60,7 +60,7 @@ Candidate: ${data.candidateName ?? '—'}
 Role: ${data.role} ${data.level}
 Client: ${data.clientName ?? '—'}
 Stage: ${data.stage}
-Date: ${new Date(data.createdAt).toLocaleDateString()}
+Date: ${new Date(data.analysisDate ?? data.createdAt).toLocaleDateString()}
 
 RECOMMENDATION: ${analysis?.recommendation ?? analysis?.stageResult ?? '—'}
 SCORE: ${analysis?.score ?? '—'}
@@ -133,7 +133,7 @@ ${analysis?.decisionBreakers?.length > 0 ? `DECISION BREAKERS:\n${analysis.decis
               </h2>
               {data && (
                 <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
-                  {data.role} {data.level} · {data.clientName ?? '—'} · {new Date(data.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                  {data.role} {data.level} · {data.clientName ?? '—'} · {new Date(data.analysisDate ?? data.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
                 </p>
               )}
             </div>

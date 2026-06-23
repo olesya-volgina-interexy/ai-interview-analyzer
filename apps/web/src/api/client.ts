@@ -120,6 +120,7 @@ export interface InterviewListItem {
   candidateName: string | null;
   managerName: string | null;
   analysis: CandidateAnalysis;
+  analysisDate: string | null;
   createdAt: string;
 }
 
@@ -260,6 +261,7 @@ export interface CandidateDetail {
     clientName: string | null;
     managerName: string | null;
     createdAt: string;
+    analysisDate: string | null;
     recommendation: string | null;
     stageResult: string | null;
     score: number | null;

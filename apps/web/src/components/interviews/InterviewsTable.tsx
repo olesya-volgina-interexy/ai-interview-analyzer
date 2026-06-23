@@ -116,7 +116,7 @@ export function InterviewsTable({ data, isLoading, onRowClick, page, hasNext, on
                 onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
               >
                 <td className="px-3 py-3 whitespace-nowrap" style={{ color: 'var(--color-text-tertiary)' }}>
-                  {formatDate(item.createdAt)}
+                  {formatDate(item.analysisDate ?? item.createdAt)}
                 </td>
                 <td className="px-3 py-3 max-w-0">
                   <div className="flex items-center gap-2">

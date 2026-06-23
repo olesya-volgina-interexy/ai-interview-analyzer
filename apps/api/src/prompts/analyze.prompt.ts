@@ -23,8 +23,8 @@ Client: ${meta.clientName ?? 'not specified'}
 Decision: ${meta.decision === 'hired' ? 'PASSED' : meta.decision === 'rejected' ? 'REJECTED' : 'NOT PROVIDED'}
 Comments: ${meta.interviewerComments ?? 'not provided'}
 
-TASKS: Evaluate communication, motivation, cultural fit, salary expectations, soft skills.
-Detect: question avoidance, vague answers, salary gaps, CV inconsistencies.
+TASKS: Evaluate communication, motivation, cultural fit, soft skills.
+Detect: question avoidance, vague answers, CV inconsistencies.
 `.trim();
 }
 
@@ -62,6 +62,22 @@ For each requirement:
   - priority: "must_have" if listed as required/mandatory/years-of-experience requirement,
               "nice_to_have" if listed as plus/bonus/optional
 
+MERGE RULE: when the broker_request lists BOTH a generic category AND a
+specific instance of that category, output ONE requirement under the more
+specific name — the generic is implied. Without this, covering the specific
+would falsely leave the generic "not assessed".
+
+Examples of pairs to merge:
+  - "AWS" + "Cloud Platforms"        → "AWS (cloud platform)"
+  - "EKS" + "Kubernetes"             → "EKS (Kubernetes)"
+  - "React" + "Frontend frameworks"  → "React (frontend)"
+  - "PostgreSQL" + "SQL databases"   → "PostgreSQL"
+  - "SAP WM" + "Logistics modules"   → "SAP WM"
+
+If the broker explicitly asks for breadth ("AWS AND GCP", "PostgreSQL AND
+MongoDB", "React OR Vue") — keep them separate. Merge only applies when one
+is a strict subset of the other.
+
 Examples:
   broker says "Required: React 18, TypeScript, 3+ years frontend" →
     [{"id":"req-1","skill":"React","priority":"must_have"},
@@ -82,6 +98,20 @@ Extract EVERY question/answer exchange. Look for:
 - Follow-ups: "can you go deeper?", "what specifically?", "how did you handle...?"
 - Soft/personal: "what do you like?", "where do you get energy?"
 - Candidate reverse questions: "how does your team work?", "what tools do you use?"
+
+COMPLETENESS — THIS IS CRITICAL. Read mistakes here are the #1 failure of this task:
+- Walk the transcript top to bottom, in chronological order, and emit one entry the
+  moment you encounter ANY question. Do NOT read ahead, summarize, then write a short list.
+- Output EVERY distinct exchange as its OWN entry. NEVER merge several questions into one,
+  and NEVER collapse a multi-turn topic into a single "headline" entry. A follow-up like
+  "can you give an example?" or "but why?" is a SEPARATE entry from the question before it,
+  even on the same topic.
+- Do NOT cap, sample, or skip "minor" questions. There is no maximum — return as many as exist.
+- Reality check before you finish: a typical 30-60 minute technical interview contains roughly
+  10-40 question/answer exchanges. If your list has only a handful (e.g. < 8) for a transcript
+  of this length, you have UNDER-extracted — re-scan and add the ones you skipped.
+- The ONLY exchanges you skip are pure personal introductions with no concrete subject
+  (see the topic rule below). Everything else gets an entry.
 
 For each, output:
   speaker, timestamp (or "[NO_TIMESTAMP]"), quote (exact),
@@ -204,8 +234,8 @@ Scan EVERY candidate answer for these flags. Do not skip — if none apply, outp
     inappropriate context, repeatedly interrupted, etc. Severity: medium if
     interviewer had to ask once; high if multiple reminders were needed.
 
-  "other" — anything else worth flagging. Name the type specifically (e.g. "salary_mismatch",
-    "availability_concern", "scope_creep_history").
+  "other" — anything else worth flagging. Name the type specifically (e.g. "availability_concern",
+    "scope_creep_history", "relocation_concern").
 
 For each: { "type":"<one of above>", "evidence":"<exact quote or close paraphrase>",
             "severity":"low|medium|high" }
@@ -364,7 +394,7 @@ Return ONLY valid JSON, no markdown wrapper.
 export const MANAGER_CALL_JSON_SCHEMA = `{
   "stage": "manager_call",
   "overallImpression": "2-3 sentences",
-  "softSkills": { "communication":"", "motivation":"", "cultureFit":"", "salaryExpectations":"", "clarityOfThought":"" },
+  "softSkills": { "communication":"", "motivation":"", "cultureFit":"", "clarityOfThought":"" },
   "strengths": [], "weaknesses": [], "risks": [],
   "brokerSoftFit": { "coveredRequirements":[], "missingRequirements":[], "fitSummary":"" },
   "stageResult": "passed|rejected|on_hold",

@@ -25,11 +25,14 @@ export function AnalyzeForm({ onSubmit }: { onSubmit: (data: AnalyzeRequest) => 
   const form = useForm<AnalyzeRequest>({
     resolver: zodResolver(AnalyzeRequestSchema),
     defaultValues: {
-      meta: { stage: 'technical', role: '', level: 'Middle' },
+      meta: {
+        stage: 'technical',
+        role: '',
+        level: 'Middle',
+        analysisDate: new Date().toISOString().slice(0, 10),
+      },
     },
   });
-
-  const stage = form.watch('meta.stage');
 
   const [cvFileName, setCvFileName] = useState<string | null>(null);
   const [cvUploading, setCvUploading] = useState(false);
@@ -157,30 +160,17 @@ export function AnalyzeForm({ onSubmit }: { onSubmit: (data: AnalyzeRequest) => 
         </div>
       </div>
 
-      {stage === 'technical' && (
-        <div className="space-y-1.5">
-          <Label className="text-sm font-medium text-slate-700">Interviewer Decision</Label>
-          <Select onValueChange={v => form.setValue('meta.decision', v as any)}>
-            <SelectTrigger className="bg-slate-50 border-slate-200">
-              <SelectValue placeholder="Select outcome..." />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="hired">
-                <span className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
-                  Hired
-                </span>
-              </SelectItem>
-              <SelectItem value="rejected">
-                <span className="flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 inline-block" />
-                  Rejected
-                </span>
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      )}
+      <div className="space-y-1.5">
+        <Label className="text-sm font-medium text-slate-700">Analysis Date</Label>
+        <Input
+          type="date"
+          {...form.register('meta.analysisDate')}
+          className="bg-slate-50 border-slate-200 focus-visible:bg-white transition-colors sm:w-56"
+        />
+        {form.formState.errors.meta?.analysisDate && (
+          <p className="text-red-500 text-xs">{form.formState.errors.meta.analysisDate.message}</p>
+        )}
+      </div>
 
       <Divider />
 
@@ -216,7 +206,7 @@ export function AnalyzeForm({ onSubmit }: { onSubmit: (data: AnalyzeRequest) => 
       <Divider />
 
       {/* Resume / CV */}
-      <SectionTitle>Resume <span className="normal-case tracking-normal font-normal text-slate-300">— optional</span></SectionTitle>
+      <SectionTitle>Resume</SectionTitle>
       <div className="space-y-3">
         <div className="space-y-1.5">
           <Label className="text-sm font-medium text-slate-700">CV URL</Label>
@@ -255,6 +245,10 @@ export function AnalyzeForm({ onSubmit }: { onSubmit: (data: AnalyzeRequest) => 
           {cvUploading && <p className="text-xs text-slate-500">Uploading…</p>}
           {cvError && <p className="text-red-500 text-xs">{cvError}</p>}
         </div>
+
+        {form.formState.errors.cvText && (
+          <p className="text-red-500 text-xs">{form.formState.errors.cvText.message}</p>
+        )}
       </div>
 
       <Divider />
@@ -282,6 +276,16 @@ export function AnalyzeForm({ onSubmit }: { onSubmit: (data: AnalyzeRequest) => 
       </div>
 
       <div className="mt-6 pt-4 border-t border-slate-100">
+        {form.formState.isSubmitted && Object.keys(form.formState.errors).length > 0 && (
+          <div className="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 space-y-0.5">
+            <p className="font-semibold">Please fix the following before starting:</p>
+            {form.formState.errors.transcript && <p>• {form.formState.errors.transcript.message}</p>}
+            {form.formState.errors.cvText && <p>• {form.formState.errors.cvText.message}</p>}
+            {form.formState.errors.meta?.role && <p>• Role: {form.formState.errors.meta.role.message}</p>}
+            {form.formState.errors.meta?.cvUrl && <p>• CV URL: {form.formState.errors.meta.cvUrl.message}</p>}
+            {form.formState.errors.meta?.transcriptUrl && <p>• Transcript URL: {form.formState.errors.meta.transcriptUrl.message}</p>}
+          </div>
+        )}
         <Button
           type="submit"
           disabled={form.formState.isSubmitting || cvUploading}
