@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clientsApi } from '@/api/client';
-import { GeneratePreparationDocModal } from '@/components/modals/GeneratePreparationDocModal';
+import { CreatePreparationDocModal } from '@/components/modals/CreatePreparationDocModal';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { CandidateModal } from '@/components/modals/CandidateModal';
 import { ClientInsightsBlock } from '@/components/clients/ClientInsightsBlock';
-import { ArrowLeft, Building2, Users, Target, Inbox, FileSignature, MessageSquare, Sparkles, FileText } from 'lucide-react';
+import { ArrowLeft, Building2, Users, Target, Inbox, FileSignature, MessageSquare, Sparkles, FileText, Unlink } from 'lucide-react';
 
 function formatDate(iso: string | null) {
   if (!iso) return '—';
@@ -41,9 +41,20 @@ export function ClientDetailPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [prepModalOpen, setPrepModalOpen] = useState(false);
 
+  const queryClient = useQueryClient();
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ['client', name],
     queryFn: () => clientsApi.getClient(decodeURIComponent(name)).then(r => r.data),
+  });
+
+  const unmergeMutation = useMutation({
+    mutationFn: (aliases: string[]) => clientsApi.unmergeClients(aliases).then(r => r.data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['client', name] });
+      queryClient.invalidateQueries({ queryKey: ['clients'] });
+      queryClient.invalidateQueries({ queryKey: ['stats'] });
+    },
   });
 
   if (isLoading) return (
@@ -116,6 +127,23 @@ export function ClientDetailPage() {
           <p className="text-sm text-slate-500 mt-0.5">
             Last interview: {formatDate(data.lastInterviewAt)}
           </p>
+          {data.aliases.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+              <span className="text-xs text-slate-400">Merged from:</span>
+              {data.aliases.map(a => (
+                <Badge key={a} variant="outline" className="text-xs font-normal text-slate-500">
+                  {a}
+                </Badge>
+              ))}
+              <button
+                onClick={() => unmergeMutation.mutate(data.aliases)}
+                disabled={unmergeMutation.isPending}
+                className="ml-1 flex items-center gap-1 text-xs text-slate-400 hover:text-red-600 transition-colors disabled:opacity-50"
+              >
+                <Unlink size={11} /> Unmerge all
+              </button>
+            </div>
+          )}
         </div>
         <div className="flex gap-2 flex-shrink-0">
           <Button variant="outline" size="sm" onClick={() => setPrepModalOpen(true)} className="gap-2">
@@ -241,7 +269,7 @@ export function ClientDetailPage() {
         </TabsContent>
       </Tabs>
 
-      <GeneratePreparationDocModal
+      <CreatePreparationDocModal
         open={prepModalOpen}
         onClose={() => setPrepModalOpen(false)}
         defaultClientName={data.name}

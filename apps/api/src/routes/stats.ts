@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../db/prisma';
 import { clusterTextItems } from '../services/llm.service';
+import { getAliasMap, normalizeClientKey } from '../services/clientAlias.service';
 import { redis } from '../db/redis';
 
 const CACHE_TTL = 60 * 30; // 30 минут
@@ -60,8 +61,13 @@ export async function statsRoutes(fastify: FastifyInstance) {
       return acc;
     }, {} as Record<string, number>);
 
+    const aliasMap = await getAliasMap();
+    const canonClient = (raw: string) => aliasMap.get(normalizeClientKey(raw)) ?? raw;
     const byClient = requests.reduce((acc, r) => {
-      if (r.clientName) acc[r.clientName] = (acc[r.clientName] ?? 0) + 1;
+      if (r.clientName) {
+        const c = canonClient(r.clientName);
+        acc[c] = (acc[c] ?? 0) + 1;
+      }
       return acc;
     }, {} as Record<string, number>);
 

@@ -2,6 +2,15 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db/prisma';
 import { buildClientProfile } from '../services/clientProfile.service';
+import {
+  getAliasMap,
+  getCanonicalKeys,
+  clientNameWhere,
+  normalizeClientKey,
+  mergeClients,
+  unmergeClients,
+} from '../services/clientAlias.service';
+import { redis } from '../db/redis';
 import type { ClientInsights } from '@shared/schemas';
 
 const PROFILE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -10,6 +19,22 @@ const ListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
+
+const MergeClientsSchema = z.object({
+  canonicalName: z.string().min(1),
+  aliases: z.array(z.string().min(1)).min(1),
+});
+
+const UnmergeClientsSchema = z.object({
+  aliases: z.array(z.string().min(1)).min(1),
+});
+
+async function invalidateStatsCache() {
+  try {
+    const keys = await redis.keys('stats:overview:*');
+    if (keys.length > 0) await redis.del(...keys);
+  } catch {}
+}
 
 type ClientAggregates = {
   interviewCount: number;
@@ -84,6 +109,36 @@ function buildAggregates(
   };
 }
 
+function foldMaps(
+  maps: Awaited<ReturnType<typeof getAggregateMaps>>,
+  canon: (raw: string) => string,
+): Awaited<ReturnType<typeof getAggregateMaps>> {
+  const interviewMap = new Map<string, { count: number; lastAt: Date | null }>();
+  for (const [raw, v] of maps.interviewMap) {
+    const c = canon(raw);
+    const ex = interviewMap.get(c);
+    if (!ex) interviewMap.set(c, { count: v.count, lastAt: v.lastAt });
+    else {
+      ex.count += v.count;
+      if (v.lastAt && (!ex.lastAt || v.lastAt > ex.lastAt)) ex.lastAt = v.lastAt;
+    }
+  }
+
+  const hiredMap = new Map<string, number>();
+  for (const [raw, n] of maps.hiredMap) {
+    const c = canon(raw);
+    hiredMap.set(c, (hiredMap.get(c) ?? 0) + n);
+  }
+
+  const requestMap = new Map<string, number>();
+  for (const [raw, n] of maps.requestMap) {
+    const c = canon(raw);
+    requestMap.set(c, (requestMap.get(c) ?? 0) + n);
+  }
+
+  return { interviewMap, hiredMap, requestMap };
+}
+
 export async function clientRoutes(fastify: FastifyInstance) {
   fastify.get('/clients', async (request, reply) => {
     const parsed = ListQuerySchema.safeParse(request.query);
@@ -92,13 +147,24 @@ export async function clientRoutes(fastify: FastifyInstance) {
     }
     const { page, limit } = parsed.data;
 
-    const clients = await prisma.client.findMany({
-      select: { name: true, description: true },
-    });
+    const [clients, aliasMap, rawMaps] = await Promise.all([
+      prisma.client.findMany({ select: { name: true, description: true } }),
+      getAliasMap(),
+      getAggregateMaps(),
+    ]);
 
-    const maps = await getAggregateMaps();
+    const canon = (raw: string) => aliasMap.get(normalizeClientKey(raw)) ?? raw;
+    const maps = foldMaps(rawMaps, canon);
 
-    const enriched = clients.map(c => ({
+    const byCanonical = new Map<string, { name: string; description: string | null }>();
+    for (const c of clients) {
+      const name = canon(c.name);
+      const existing = byCanonical.get(name);
+      if (!existing) byCanonical.set(name, { name, description: c.description });
+      else if (!existing.description && c.description) existing.description = c.description;
+    }
+
+    const enriched = [...byCanonical.values()].map(c => ({
       name: c.name,
       description: c.description,
       ...buildAggregates(c.name, maps),
@@ -125,29 +191,43 @@ export async function clientRoutes(fastify: FastifyInstance) {
         return reply.status(404).send({ error: 'Client not found' });
       }
 
-      const maps = await getAggregateMaps([name]);
-      const aggregates = buildAggregates(name, maps);
+      const keys = await getCanonicalKeys(name);
+      const where = clientNameWhere(keys);
 
-      const [recentInterviews, managerRows] = await Promise.all([
-        prisma.interview.findMany({
-          where: { clientName: name },
-          orderBy: { createdAt: 'desc' },
-          take: 5,
-          select: {
-            id: true,
-            candidateName: true,
-            stage: true,
-            decision: true,
-            analysis: true,
-            createdAt: true,
-          },
-        }),
-        prisma.interview.findMany({
-          where: { clientName: name, managerName: { not: null } },
-          select: { managerName: true },
-          distinct: ['managerName'],
-        }),
-      ]);
+      const [interviewCount, hired, requestCount, lastInterview, recentInterviews, managerRows] =
+        await Promise.all([
+          prisma.interview.count({ where }),
+          prisma.interview.count({ where: { AND: [where, { decision: 'hired' }] } }),
+          prisma.incomingRequest.count({ where }),
+          prisma.interview.findFirst({
+            where,
+            orderBy: { createdAt: 'desc' },
+            select: { createdAt: true },
+          }),
+          prisma.interview.findMany({
+            where,
+            orderBy: { createdAt: 'desc' },
+            take: 5,
+            select: {
+              id: true,
+              candidateName: true,
+              stage: true,
+              decision: true,
+              analysis: true,
+              createdAt: true,
+            },
+          }),
+          prisma.interview.findMany({
+            where: { AND: [where, { managerName: { not: null } }] },
+            select: { managerName: true },
+            distinct: ['managerName'],
+          }),
+        ]);
+
+      const aliasRows = await prisma.clientAlias.findMany({
+        where: { canonicalName: name },
+        select: { alias: true },
+      });
 
       return {
         id: client.id,
@@ -156,7 +236,11 @@ export async function clientRoutes(fastify: FastifyInstance) {
         insights: client.insights,
         createdAt: client.createdAt.toISOString(),
         updatedAt: client.updatedAt.toISOString(),
-        ...aggregates,
+        interviewCount,
+        hireRate: interviewCount > 0 ? Math.round((hired / interviewCount) * 100) : 0,
+        requestCount,
+        lastInterviewAt: lastInterview?.createdAt ? lastInterview.createdAt.toISOString() : null,
+        aliases: aliasRows.map(a => a.alias),
         recentInterviews: recentInterviews.map(i => ({
           id: i.id,
           candidateName: i.candidateName,
@@ -169,6 +253,31 @@ export async function clientRoutes(fastify: FastifyInstance) {
       };
     },
   );
+
+  fastify.post('/clients/merge', async (request, reply) => {
+    const parsed = MergeClientsSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Invalid body', details: parsed.error.flatten() });
+    }
+    try {
+      const result = await mergeClients(parsed.data.canonicalName, parsed.data.aliases);
+      await invalidateStatsCache();
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Merge failed';
+      return reply.status(400).send({ error: message });
+    }
+  });
+
+  fastify.post('/clients/unmerge', async (request, reply) => {
+    const parsed = UnmergeClientsSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.status(400).send({ error: 'Invalid body', details: parsed.error.flatten() });
+    }
+    const removed = await unmergeClients(parsed.data.aliases);
+    await invalidateStatsCache();
+    return { removed };
+  });
 
   fastify.get<{ Params: { name: string } }>(
     '/clients/:name/profile',

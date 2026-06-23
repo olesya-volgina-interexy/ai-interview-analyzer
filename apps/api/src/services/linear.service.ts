@@ -148,6 +148,19 @@ async function linearGraphQL<T>(
   return json.data;
 }
 
+// ── Получить ссылку и идентификатор тикета ──────────────────────────────────
+
+export async function getIssueRef(
+  issueId: string,
+): Promise<{ url: string; identifier: string } | null> {
+  const data = await linearGraphQL<{
+    issue: { url: string; identifier: string } | null;
+  }>('query GetIssueRef($id: String!) { issue(id: $id) { url identifier } }', {
+    id: issueId,
+  });
+  return data.issue ? { url: data.issue.url, identifier: data.issue.identifier } : null;
+}
+
 // ── Получить список issues (вакансий) ────────────────────────────────────────
 
 export interface LinearIssueListItem {
@@ -239,6 +252,25 @@ export async function getIssueComments(issueId: string): Promise<LinearComment[]
   return comments.sort(
     (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
   );
+}
+
+// ── Получить один комментарий с bodyData (ProseMirror JSON) ───────────────
+// Webhook не кладёт ссылку на приложенный файл в body — она доступна только
+// через API (в body после загрузки и в структурированном bodyData).
+
+export interface LinearCommentDetail {
+  id: string;
+  body: string;
+  bodyData: string | null;
+}
+
+export async function getComment(commentId: string): Promise<LinearCommentDetail | null> {
+  const data = await linearGraphQL<{
+    comment: LinearCommentDetail | null;
+  }>('query GetComment($id: String!) { comment(id: $id) { id body bodyData } }', {
+    id: commentId,
+  });
+  return data.comment ?? null;
 }
 
 // ── Постинг reply в ветку кандидата (через прямой GraphQL mutation) ───────

@@ -74,7 +74,8 @@ function parseCandidateThread(
   root: LinearComment,
   replies: LinearComment[]
 ): CandidateThread {
-  const cvUrl = extractCVUrl(root.body);
+  // visualcv-ссылка ИЛИ файл (PDF/DOC/TXT), приложенный к root-комментарию.
+  const cvUrl = extractCvUrlFromComment(root.body);
 
   const managerTranscriptReply = replies.find(r =>
     r.body.includes('#manager_call_transcript')
@@ -144,6 +145,55 @@ export function extractCVUrl(body: string): string | null {
   const plainMatch = body.match(/https?:\/\/my\.visualcv\.com\/[^\s)>\]]+/);
   if (plainMatch) return plainMatch[0];
 
+  return null;
+}
+
+// CV из root-комментария: либо visualcv-ссылка, либо приложенный файлом
+// (PDF/DOC/TXT). Вызывается только для root-комментариев.
+export function extractCvUrlFromComment(body: string): string | null {
+  const visualcv = extractCVUrl(body);
+  if (visualcv) return visualcv;
+
+  const attachment = body.match(
+    /\[[^\]]+\.(?:pdf|docx?|txt|rtf)\]\(<?(https?:\/\/[^)>]+)>?\)/i,
+  );
+  return attachment ? attachment[1] : null;
+}
+
+// CV из bodyData root-комментария: Linear хранит приложенные файлы как
+// file-ноды ProseMirror (type: 'file', attrs: { href, name, mimetype }).
+// Webhook не отдаёт эту ссылку в markdown — забираем её из bodyData.
+export function extractCvAttachmentFromBodyData(bodyData: string | null): string | null {
+  if (!bodyData) return null;
+  let doc: unknown;
+  try {
+    doc = JSON.parse(bodyData);
+  } catch {
+    return null;
+  }
+  return findCvFileHref(doc);
+}
+
+function findCvFileHref(node: any): string | null {
+  if (!node || typeof node !== 'object') return null;
+
+  if (node.type === 'file' && node.attrs?.href) {
+    const name = String(node.attrs.name ?? '');
+    const mimetype = String(node.attrs.mimetype ?? '');
+    const isCvFile =
+      mimetype === 'application/pdf' ||
+      mimetype.includes('wordprocessingml') ||
+      mimetype === 'application/msword' ||
+      /\.(pdf|docx?|txt|rtf)$/i.test(name);
+    if (isCvFile) return String(node.attrs.href);
+  }
+
+  if (Array.isArray(node.content)) {
+    for (const child of node.content) {
+      const found = findCvFileHref(child);
+      if (found) return found;
+    }
+  }
   return null;
 }
 

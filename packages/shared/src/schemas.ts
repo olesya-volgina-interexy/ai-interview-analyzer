@@ -205,7 +205,7 @@ export const ChatRequestSchema = z.object({
 });
 
 export const GeneratePreparationDocRequestSchema = z.object({
-  candidateName: z.string().min(1),
+  candidateName: z.string().min(1).optional(),
   clientName: z.string().min(1),
   candidateId: z.string().uuid().optional(),
   cvText: z.string().optional(),

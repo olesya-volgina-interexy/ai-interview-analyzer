@@ -6,7 +6,7 @@ import { describeError } from '../utils/errorLogger';
 
 export interface PreparationJobData {
   preparationDocId: string;
-  candidateName: string;
+  candidateName?: string;
   clientName: string;
   role?: string;
   linearIssueId?: string;
@@ -42,7 +42,7 @@ export const preparationWorker = new Worker<PreparationJobData>(
         hasBrokerRequest: !!brokerRequest,
       });
 
-      const { markdown, sourceInterviewIds } = await generatePreparationDoc({
+      const { markdown, sourceInterviewIds, candidateName: resolvedName } = await generatePreparationDoc({
         candidateName,
         clientName,
         role: job.data.role,
@@ -65,6 +65,7 @@ export const preparationWorker = new Worker<PreparationJobData>(
         data: {
           markdown,
           sourceInterviewIds,
+          candidateName: resolvedName,
           status: 'completed',
         },
       });

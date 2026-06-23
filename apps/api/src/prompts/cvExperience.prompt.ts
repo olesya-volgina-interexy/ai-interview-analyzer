@@ -25,8 +25,8 @@ Rules:
      "6 months in 2024"). Do NOT invent dates.
    - If a technology is mentioned without project context, return projects
      as an empty array — do not fabricate.
-5. Output language: use the same language as the CV for project names and
-   period descriptions. Technology names stay as written by the candidate.
+5. Output language: English. Translate project names and period descriptions
+   into English. Technology names stay as written by the candidate.
 6. Skip technologies that appear only in "interests" / "learning" sections
    without real project experience.
 

@@ -23,8 +23,14 @@ export async function extractCVText(cvUrl: string): Promise<string> {
       return await fetchPdfContent(url, CV_MAX_CHARS);
     }
 
-    if (isTextFile(url) || LINEAR_UPLOAD_RE.test(url)) {
-      return await fetchRawTextContent(url, CV_MAX_CHARS, LINEAR_UPLOAD_RE.test(url));
+    // Linear-загрузки приходят без расширения (uploads.linear.app/<uuid>/...),
+    // поэтому тип определяем по содержимому, а не по URL.
+    if (LINEAR_UPLOAD_RE.test(url)) {
+      return await fetchLinearUploadContent(url, CV_MAX_CHARS);
+    }
+
+    if (isTextFile(url)) {
+      return await fetchRawTextContent(url, CV_MAX_CHARS, false);
     }
 
     return await fetchGenericWebContent(url, CV_MAX_CHARS);
@@ -50,6 +56,37 @@ async function fetchPdfContent(url: string, maxChars: number): Promise<string> {
   if (!text) throw new Error(`PDF content is empty`);
   assertExtractedTextPlausible(text, buffer.length, url);
   return text.slice(0, maxChars);
+}
+
+// Linear-вложение: тянем байты с Linear-авторизацией и определяем тип по
+// сигнатуре. PDF (%PDF) парсим через pdf-parse, остальное читаем как текст.
+async function fetchLinearUploadContent(url: string, maxChars: number): Promise<string> {
+  const headers: Record<string, string> = { 'User-Agent': 'Mozilla/5.0' };
+  if (process.env.LINEAR_API_KEY) {
+    headers['Authorization'] = process.env.LINEAR_API_KEY;
+  }
+
+  const res = await axios.get(url, {
+    responseType: 'arraybuffer',
+    timeout: 30_000,
+    headers,
+  });
+
+  const buffer = Buffer.from(res.data);
+  const contentType = String(res.headers['content-type'] ?? '');
+  const isPdf =
+    buffer.subarray(0, 5).toString('latin1').startsWith('%PDF') ||
+    contentType.includes('application/pdf');
+
+  if (isPdf) {
+    const parsed = await pdfParse(buffer);
+    const text = sanitizePdfText(parsed.text);
+    if (!text) throw new Error('PDF content is empty');
+    assertExtractedTextPlausible(text, buffer.length, url);
+    return text.slice(0, maxChars);
+  }
+
+  return stripNullBytes(buffer.toString('utf-8')).slice(0, maxChars);
 }
 
 async function fetchRawTextContent(url: string, maxChars: number, withLinearAuth = false): Promise<string> {
@@ -123,8 +160,9 @@ export async function extractNameFromCV(cvText: string): Promise<string | null> 
       model: LLM_MODEL,
       messages: [{
         role: 'user',
-        content: `Extract the candidate's full name from this CV.
-Return ONLY the full name (e.g. "John Smith"). If the name cannot be determined, return "null".
+        content: `Extract the candidate's name from this CV.
+Return ONLY the name exactly as written — even if it's just a first name with an initial (e.g. "Michael K") or a first name only.
+Return "null" only if no personal name appears anywhere in the text.
 
 CV:
 ${cvText.slice(0, 2500)}`,

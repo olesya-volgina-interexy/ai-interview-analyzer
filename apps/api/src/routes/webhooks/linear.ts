@@ -5,17 +5,19 @@ import {
   findCandidatesForManagerCall,
   findCandidatesForTechCall,
   findCandidatesForFinalResult,
-  extractCVUrl,
+  extractCvUrlFromComment,
+  extractCvAttachmentFromBodyData,
   type CandidateThread,
 } from '../../services/linear.parser';
 import { extractCVText, detectLevelFromCV, extractNameFromCV, extractNameFromTranscript  } from '../../services/cv.service';
 import { analyzeQueue } from '../../workers/analyze.worker';
+import { cvConsistencyQueue } from '../../workers/cvConsistency.worker';
 import { buildWebhookJobId } from '../../utils/dedup';
 import { getExistingAnalysesForIssue, upsertIncomingRequest, updateIncomingRequestStatus } from '../../db/db.service';
 import { prisma } from '../../db/prisma';
 import { redis } from '../../db/redis';
 import { fetchTranscript } from '../../services/bluedot.service';
-import { parseIssueTitle } from '../../services/linear.service';
+import { parseIssueTitle, getComment } from '../../services/linear.service';
 
 
 const STATUS_TRIAGE = 'Triage';
@@ -82,12 +84,31 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
 
         fastify.log.info(`Linear: new comment in issue ${issueId}`);
 
-        // CV detection — трекаем отправку CV (только root-комментарии)
-        const hasCVLink = commentBody.includes('my.visualcv.com') ||
-          commentBody.toLowerCase().includes('visualcv');
-        const isRootComment = !data.parent?.id;
+        // CV detection — visualcv-ссылка или CV, приложенный файлом (PDF/DOC/TXT).
+        // Только root-комментарии (Linear шлёт плоское поле parentId).
+        // Игнорируем собственные алерты, иначе ссылка на CV внутри алерта
+        // снова распознаётся как новое резюме (бесконечная петля).
+        const isRootComment = !data.parentId && !data.parent?.id;
+        const isOwnAlert = commentBody.includes('Possible CV mismatch');
+        let cvUrl = isRootComment && !isOwnAlert ? extractCvUrlFromComment(commentBody) : null;
 
-        if (hasCVLink && issueId && isRootComment) {
+        // Webhook-тело не содержит ссылку на файл, приложенный к комментарию —
+        // она доступна только через API (body после загрузки + bodyData).
+        // Дозапрашиваем лишь когда инлайн-ссылки нет, чтобы не плодить запросы.
+        if (!cvUrl && isRootComment && !isOwnAlert) {
+          try {
+            const detail = await getComment(data.id);
+            if (detail && !detail.body.includes('Possible CV mismatch')) {
+              cvUrl =
+                extractCvUrlFromComment(detail.body) ??
+                extractCvAttachmentFromBodyData(detail.bodyData);
+            }
+          } catch (err) {
+            fastify.log.warn({ err }, 'Failed to re-fetch comment for CV attachment');
+          }
+        }
+
+        if (cvUrl && issueId) {
           await prisma.incomingRequest.updateMany({
             where: {
               linearIssueId: issueId,
@@ -109,9 +130,8 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
               cvSentCount: { increment: 1 },
             },
           }).catch(err => fastify.log.warn({ err }, 'Failed to increment cv count'));
-          if (isRootComment) {
-            const cvUrl = extractCVUrl(commentBody);
-            if (cvUrl) {
+          {
+            {
               setImmediate(async () => {
                 try {
                   const cvText = await extractCVText(cvUrl);
@@ -144,6 +164,23 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
                       level: level ?? undefined,
                     },
                   });
+
+                  const cvAlertsOn = (process.env.CV_CONSISTENCY_ALERTS ?? 'off').toLowerCase() === 'on';
+                  fastify.log.info({ rootCommentId: data.id, cvAlertsOn }, '[cv-consistency] CV ingested, enqueue?');
+                  if (cvAlertsOn) {
+                    await cvConsistencyQueue
+                      .add(
+                        'check',
+                        { rootCommentId: data.id },
+                        {
+                          jobId: `cv-consistency-${data.id}`,
+                          removeOnComplete: { age: 3600 },
+                          removeOnFail: { age: 3600 },
+                        },
+                      )
+                      .then(() => fastify.log.info({ rootCommentId: data.id }, '[cv-consistency] enqueued'))
+                      .catch((err) => fastify.log.warn({ err }, 'Failed to enqueue cv-consistency'));
+                  }
                 } catch (err) {
                   fastify.log.warn({ err }, 'Failed to create PipelineCandidate');
                 }

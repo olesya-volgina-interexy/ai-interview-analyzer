@@ -99,17 +99,17 @@ export async function extractExperienceTable(
 // Возвращает либо markdown-таблицу, либо строку-заглушку, если строк нет.
 export function renderExperienceTableMarkdown(table: ExperienceTable): string {
   if (table.rows.length === 0) {
-    return '_Не удалось извлечь структурированный опыт из CV — см. ссылку выше._';
+    return '_Could not extract structured experience from the CV — see the link above._';
   }
 
-  const header = '| Технология | Срок работы | Проекты и периоды |\n|---|---|---|';
+  const header = '| Technology | Experience | Projects & periods |\n|---|---|---|';
   const rows = table.rows.map((row) => {
     const projects =
       row.projects.length === 0
         ? '—'
         : row.projects
-            .map((p) => `${escapePipes(p.name)} (${escapePipes(p.period)})`)
-            .join('; ');
+            .map((p) => `${escapePipes(p.name)} — ${escapePipes(p.period)}`)
+            .join('<br>');
     return `| ${escapePipes(row.technology)} | ${escapePipes(row.totalDuration)} | ${projects} |`;
   });
   return [header, ...rows].join('\n');

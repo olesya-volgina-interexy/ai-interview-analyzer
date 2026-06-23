@@ -54,7 +54,7 @@ export async function preparationRoutes(fastify: FastifyInstance) {
 
     const doc = await prisma.preparationDoc.create({
       data: {
-        candidateName: body.candidateName,
+        candidateName: body.candidateName ?? 'Кандидат',
         clientName: body.clientName,
         brokerRequest: body.brokerRequest,
         markdown: '',
@@ -83,6 +83,32 @@ export async function preparationRoutes(fastify: FastifyInstance) {
 
     return reply.status(202).send({ id: doc.id, jobId: job.id });
   });
+
+  // PATCH /preparation/:id — save manual edits to the doc markdown
+  fastify.patch<{ Params: { id: string } }>(
+    '/preparation/:id',
+    async (request, reply) => {
+      const { id } = request.params;
+      const body = z.object({ markdown: z.string() }).parse(request.body);
+
+      const existing = await prisma.preparationDoc.findUnique({ where: { id } });
+      if (!existing) {
+        return reply.status(404).send({ error: 'Preparation doc not found' });
+      }
+      if (existing.status !== 'completed') {
+        return reply
+          .status(409)
+          .send({ error: 'Preparation doc is not ready yet', status: existing.status });
+      }
+
+      const doc = await prisma.preparationDoc.update({
+        where: { id },
+        data: { markdown: body.markdown },
+      });
+
+      return serializeDoc(doc);
+    },
+  );
 
   // GET /preparation/:id/status — for the polling loop
   fastify.get<{ Params: { id: string } }>(

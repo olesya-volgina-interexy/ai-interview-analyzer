@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import type { GeneratePreparationDocRequest } from '@shared/schemas';
@@ -27,20 +27,66 @@ import { cn } from '@/lib/utils';
 interface CreatePreparationDocModalProps {
   open: boolean;
   onClose: () => void;
+  defaultClientName?: string;
 }
 
 type CvTab = 'url' | 'file';
 
-export function CreatePreparationDocModal({ open, onClose }: CreatePreparationDocModalProps) {
+// Pull only the technology list out of a ticket description: the items nested
+// under (or inline after) the "Стек:" / "stack" line. Stops at sibling-level
+// bullets (language, location, process, …) or the next heading / rule.
+function extractTechStack(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const idx = lines.findIndex((l) => /стек|stack/i.test(l));
+  if (idx === -1) return text.trim();
+
+  const header = lines[idx];
+  const headerIndent = Math.max(header.search(/\S/), 0);
+  const isHeading = /^\s*#{1,6}\s/.test(header);
+
+  const items: string[] = [];
+
+  const inline = header
+    .replace(/^[\s>#*+-]*/, '')
+    .replace(/\*\*/g, '')
+    .replace(/^(tech\s*stack|стек|stack)\s*:?\s*/i, '')
+    .trim();
+  if (inline) items.push(...inline.split(/[,;]+/).map((s) => s.trim()).filter(Boolean));
+
+  for (let i = idx + 1; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) {
+      if (isHeading) continue;
+      break;
+    }
+    if (/^#{1,6}\s/.test(trimmed) || /^([-*]\s*){3,}$/.test(trimmed) || /^---+$/.test(trimmed)) break;
+    if (!isHeading && lines[i].search(/\S/) <= headerIndent) break;
+    const item = trimmed.replace(/^[>*+-]+\s*/, '').replace(/\*\*/g, '').trim();
+    if (item) items.push(item);
+  }
+
+  if (items.length === 0) return text.trim();
+  return items.map((s) => `- ${s}`).join('\n');
+}
+
+export function CreatePreparationDocModal({
+  open,
+  onClose,
+  defaultClientName,
+}: CreatePreparationDocModalProps) {
   const navigate = useNavigate();
+  const lockClient = !!defaultClientName;
 
   const [linearInput, setLinearInput] = useState('');
   const [selectedIssueId, setSelectedIssueId] = useState('');
-  const [clientName, setClientName] = useState('');
+  const [clientName, setClientName] = useState(defaultClientName ?? '');
   const [role, setRole] = useState('');
   const [brokerRequest, setBrokerRequest] = useState('');
-  const [candidateName, setCandidateName] = useState('');
   const [linearIssueId, setLinearIssueId] = useState<string | undefined>();
+
+  useEffect(() => {
+    if (open && defaultClientName) setClientName(defaultClientName);
+  }, [open, defaultClientName]);
 
   // Selector for tickets with multiple vacancies — index into vacancies[].
   const [vacancies, setVacancies] = useState<LinearVacancy[]>([]);
@@ -74,9 +120,9 @@ export function CreatePreparationDocModal({ open, onClose }: CreatePreparationDo
         // Одна вакансия (или эвристика не сработала) — заполняем как раньше.
         setVacancies([]);
         setSelectedVacancyIdx(null);
-        if (data.parsedClientName && !clientName) setClientName(data.parsedClientName);
+        if (data.parsedClientName && !clientName && !lockClient) setClientName(data.parsedClientName);
         if (data.parsedRole && !role) setRole(data.parsedRole);
-        if (data.description && !brokerRequest) setBrokerRequest(data.description);
+        if (data.description && !brokerRequest) setBrokerRequest(extractTechStack(data.description));
       }
 
       if (data.attachmentUrl && cvTab === 'url' && !cvUrl) setCvUrl(data.attachmentUrl);
@@ -87,9 +133,9 @@ export function CreatePreparationDocModal({ open, onClose }: CreatePreparationDo
     const v = vacancies[idx];
     if (!v) return;
     setSelectedVacancyIdx(idx);
-    if (v.parsedClientName) setClientName(v.parsedClientName);
+    if (v.parsedClientName && !lockClient) setClientName(v.parsedClientName);
     if (v.parsedRole) setRole(v.parsedRole);
-    setBrokerRequest(v.content);
+    setBrokerRequest(extractTechStack(v.content));
   };
 
   const uploadMutation = useMutation({
@@ -115,10 +161,9 @@ export function CreatePreparationDocModal({ open, onClose }: CreatePreparationDo
   const handleClose = () => {
     setLinearInput('');
     setSelectedIssueId('');
-    setClientName('');
+    setClientName(defaultClientName ?? '');
     setRole('');
     setBrokerRequest('');
-    setCandidateName('');
     setLinearIssueId(undefined);
     setVacancies([]);
     setSelectedVacancyIdx(null);
@@ -157,12 +202,7 @@ export function CreatePreparationDocModal({ open, onClose }: CreatePreparationDo
     e.preventDefault();
     setSubmitError(null);
 
-    const trimmedCandidate = candidateName.trim();
     const trimmedClient = clientName.trim();
-    if (!trimmedCandidate) {
-      setSubmitError('Candidate name is required.');
-      return;
-    }
     if (!trimmedClient) {
       setSubmitError('Client name is required — fill it in from the ticket or manually.');
       return;
@@ -173,7 +213,6 @@ export function CreatePreparationDocModal({ open, onClose }: CreatePreparationDo
     }
 
     const data: GeneratePreparationDocRequest = {
-      candidateName: trimmedCandidate,
       clientName: trimmedClient,
       role: role.trim() || undefined,
       brokerRequest: brokerRequest.trim() || undefined,
@@ -323,7 +362,11 @@ export function CreatePreparationDocModal({ open, onClose }: CreatePreparationDo
                 value={clientName}
                 onChange={(e) => setClientName(e.target.value)}
                 placeholder="Client name"
-                className="bg-slate-50 border-slate-200 focus-visible:bg-white"
+                readOnly={lockClient}
+                className={cn(
+                  'bg-slate-50 border-slate-200 focus-visible:bg-white',
+                  lockClient && 'cursor-not-allowed text-slate-500',
+                )}
               />
             </div>
             <div className="space-y-1.5">
@@ -342,31 +385,23 @@ export function CreatePreparationDocModal({ open, onClose }: CreatePreparationDo
           {/* Broker request */}
           <section className="space-y-1.5">
             <Label className="text-sm font-medium text-slate-700">
-              Broker request{' '}
-              <span className="text-slate-400 font-normal">— description from the ticket</span>
+              Tech stack{' '}
+              <span className="text-slate-400 font-normal">— pulled from the ticket (stack only), editable</span>
             </Label>
             <Textarea
               value={brokerRequest}
               onChange={(e) => setBrokerRequest(e.target.value)}
-              placeholder="Loads from the Linear ticket, or fill in manually..."
-              className="min-h-[100px] resize-none scrollbar-thin bg-slate-50 border-slate-200 focus-visible:bg-white"
-            />
-          </section>
-
-          {/* Candidate */}
-          <section className="space-y-1.5">
-            <Label className="text-sm font-medium text-slate-700">Candidate name</Label>
-            <Input
-              value={candidateName}
-              onChange={(e) => setCandidateName(e.target.value)}
-              placeholder="e.g. Ivan Petrov"
-              className="bg-slate-50 border-slate-200 focus-visible:bg-white"
+              placeholder="Loads the technology stack from the Linear ticket, or fill in manually..."
+              className="min-h-[220px] resize-y scrollbar-thin bg-slate-50 border-slate-200 focus-visible:bg-white"
             />
           </section>
 
           {/* CV */}
           <section className="space-y-2">
-            <Label className="text-sm font-medium text-slate-700">CV</Label>
+            <Label className="text-sm font-medium text-slate-700">
+              CV{' '}
+              <span className="text-slate-400 font-normal">— the candidate's name is taken from here</span>
+            </Label>
             <div className="flex gap-1 border-b border-slate-200">
               <button
                 type="button"

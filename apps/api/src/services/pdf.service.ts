@@ -21,7 +21,7 @@ async function getBrowser(): Promise<Browser> {
   return browserPromise;
 }
 
-const md = new MarkdownIt({ html: false, linkify: true, breaks: false });
+const md = new MarkdownIt({ html: true, linkify: true, breaks: false });
 
 const PDF_CSS = `
   @page { margin: 20mm 18mm; }
@@ -62,9 +62,8 @@ const PDF_CSS = `
 
 function renderHtml(markdown: string, title: string): string {
   const body = md.render(markdown);
-  // Кириллица из коробки: meta charset + системные шрифты.
   return `<!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <title>${escapeHtml(title)}</title>

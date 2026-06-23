@@ -1,5 +1,6 @@
 import { prisma } from '../db/prisma';
 import { clusterTextItems } from './llm.service';
+import { getCanonicalKeys, clientNameWhere } from './clientAlias.service';
 import type { ClientInsights } from '@shared/schemas';
 
 const HANDLED_SCORE: Record<string, number> = {
@@ -23,8 +24,9 @@ interface RawQuestion {
 }
 
 export async function aggregateClientQuestions(clientName: string): Promise<ClientInsights['topQuestions']> {
+  const keys = await getCanonicalKeys(clientName);
   const interviews = await prisma.interview.findMany({
-    where: { clientName, questions: { not: { equals: null } } },
+    where: { AND: [clientNameWhere(keys), { questions: { not: { equals: null } } }] },
     select: { questions: true },
   });
 
@@ -84,8 +86,9 @@ export async function aggregateClientPatterns(clientName: string): Promise<{
   managerStyles: ClientInsights['managerStyles'];
   basedOnInterviews: number;
 }> {
+  const keys = await getCanonicalKeys(clientName);
   const interviews = await prisma.interview.findMany({
-    where: { clientName },
+    where: clientNameWhere(keys),
     select: { stage: true, analysis: true, managerName: true },
   });
 

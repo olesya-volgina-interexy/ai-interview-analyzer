@@ -43,6 +43,15 @@ model Client {
   updatedAt   DateTime @updatedAt
 }
 
+model ClientAlias {
+  id            String   @id @default(uuid())
+  alias         String   @unique
+  canonicalName String
+  createdAt     DateTime @default(now())
+
+  @@index([canonicalName])
+}
+
 model IncomingRequest {
   id            String   @id @default(uuid())
   linearIssueId String?  @unique
@@ -86,6 +95,21 @@ model PipelineCandidate {
 
   @@index([linearIssueId])
   @@index([cvSubmittedAt])
+}
+
+model CvConsistencyAlert {
+  id                 String   @id @default(uuid())
+  candidateKey       String
+  newRootCommentId   String
+  priorRootCommentId String
+  pairHash           String   @unique
+  discrepancy        Int
+  samePerson         Boolean
+  reason             String?  @db.Text
+  posted             Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  @@index([candidateKey])
 }
 
 model PreparationDoc {

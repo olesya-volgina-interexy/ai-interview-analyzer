@@ -14,6 +14,7 @@ import { linearRoutes } from './routes/linear';
 import { preparationsRoutes } from './routes/preparations';
 import './workers/analyze.worker';
 import './workers/preparation.worker';
+import './workers/cvConsistency.worker';
 import { linearWebhookRoutes } from './routes/webhooks/linear';
 import { verifyLinearAuth } from './services/linear.service';
 import { shutdownPdfService } from './services/pdf.service';

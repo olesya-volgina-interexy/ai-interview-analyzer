@@ -328,6 +328,7 @@ export interface ClientDetail {
   hireRate: number;
   requestCount: number;
   lastInterviewAt: string | null;
+  aliases: string[];
   recentInterviews: Array<{
     id: string;
     candidateName: string | null;
@@ -351,6 +352,15 @@ export const clientsApi = {
 
   rebuildClientProfile: (name: string) =>
     api.post<ClientInsights>(`/clients/${encodeURIComponent(name)}/profile/rebuild`),
+
+  mergeClients: (canonicalName: string, aliases: string[]) =>
+    api.post<{ canonicalName: string; aliases: string[] }>('/clients/merge', {
+      canonicalName,
+      aliases,
+    }),
+
+  unmergeClients: (aliases: string[]) =>
+    api.post<{ removed: number }>('/clients/unmerge', { aliases }),
 };
 
 export const statsApi = {
@@ -450,6 +460,9 @@ export const preparationApi = {
 
   getDoc: (id: string) =>
     api.get<PreparationDoc>(`/preparation/${encodeURIComponent(id)}`),
+
+  update: (id: string, markdown: string) =>
+    api.patch<PreparationDoc>(`/preparation/${encodeURIComponent(id)}`, { markdown }),
 
   list: (params?: { page?: number; limit?: number; clientName?: string; candidateName?: string }) =>
     api.get<PreparationListResponse>('/preparation', { params }),

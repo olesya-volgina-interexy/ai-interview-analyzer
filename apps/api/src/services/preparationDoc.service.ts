@@ -1,5 +1,5 @@
 import { llmClient, LLM_MODEL } from './llm.client';
-import { extractCVText } from './cv.service';
+import { extractCVText, extractNameFromCV } from './cv.service';
 import { buildClientProfile } from './clientProfile.service';
 import { getIssueData, extractAttachmentUrl } from './linear.service';
 import {
@@ -20,10 +20,11 @@ export type PreparationDocProgress = 'context' | 'cv' | 'client' | 'llm';
 export interface GeneratePreparationDocResult {
   markdown: string;
   sourceInterviewIds: string[];
+  candidateName: string;
 }
 
 export async function generatePreparationDoc(params: {
-  candidateName: string;
+  candidateName?: string;
   clientName: string;
   role?: string;
   linearIssueId?: string;
@@ -32,7 +33,8 @@ export async function generatePreparationDoc(params: {
   brokerRequest?: string;
   onProgress?: (stage: PreparationDocProgress) => void | Promise<void>;
 }): Promise<GeneratePreparationDocResult> {
-  const { candidateName, clientName } = params;
+  const { clientName } = params;
+  let candidateName = params.candidateName?.trim() || undefined;
   let role = params.role;
   let brokerRequest = params.brokerRequest?.trim() || undefined;
   let resolvedCvUrl = params.cvUrl;
@@ -61,7 +63,7 @@ export async function generatePreparationDoc(params: {
   }
 
   // 2. PipelineCandidate fallback — для кандидатов, которые уже есть в системе.
-  if (!cvText || !resolvedCvUrl || !role) {
+  if (candidateName && (!cvText || !resolvedCvUrl || !role)) {
     const candidate = await runStage(
       'db',
       () =>
@@ -108,6 +110,17 @@ export async function generatePreparationDoc(params: {
     );
   }
 
+  // 4.5. Имя кандидата — если не передано, извлекаем из CV.
+  if (!candidateName && cvText) {
+    const extracted = await runStage(
+      'cv',
+      () => extractNameFromCV(cvText!),
+      { op: 'extractNameFromCV' },
+    );
+    candidateName = extracted ?? undefined;
+  }
+  const resolvedCandidateName = candidateName || 'Candidate';
+
   await params.onProgress?.('context');
 
   // 5. Структурированная таблица опыта (LLM-вызов #1).
@@ -137,7 +150,6 @@ export async function generatePreparationDoc(params: {
 
   await params.onProgress?.('client');
 
-  // 7. Секция вопросов клиента — либо LLM-вызов #2, либо заглушка.
   const hasClientHistory =
     !!clientProfile && clientProfile.basedOnInterviews > 0;
 
@@ -153,13 +165,13 @@ export async function generatePreparationDoc(params: {
           }),
         { op: 'generateClientQuestionsSection', clientName },
       )
-    : renderClientPlaceholder(clientName);
+    : '';
 
   await params.onProgress?.('llm');
 
   // 8. Собираем итоговый markdown в коде.
   const markdown = renderPreparationDocMarkdown({
-    candidateName,
+    candidateName: resolvedCandidateName,
     role,
     brokerRequest,
     cvUrl: resolvedCvUrl,
@@ -170,6 +182,7 @@ export async function generatePreparationDoc(params: {
   return {
     markdown,
     sourceInterviewIds: [],
+    candidateName: resolvedCandidateName,
   };
 }
 
@@ -201,41 +214,24 @@ async function generateClientQuestionsSection(params: {
   }
 
   if (!content) {
-    return renderClientPlaceholder(params.clientName);
+    return '';
   }
 
-  // На случай если LLM начнёт ответ с лишних пробелов/кавычек/кода — приведём
-  // к виду, начинающемуся ровно с "## Подготовка к вопросам клиента".
-  return normaliseClientSection(content, params.clientName);
+  return normaliseClientSection(content);
 }
 
-function normaliseClientSection(content: string, clientName: string): string {
-  // Срезаем code-fence обёртку, если LLM нарушил инструкцию.
+function normaliseClientSection(content: string): string {
   let s = content.replace(/^```(?:markdown|md)?\s*/i, '').replace(/```\s*$/i, '').trim();
 
-  // Если ответ не начинается с нужного заголовка — добавляем его.
-  if (!/^##\s+Подготовка к вопросам клиента/i.test(s)) {
-    // Возможно LLM добавил какое-то вступление — попробуем найти заголовок.
-    const idx = s.search(/##\s+Подготовка к вопросам клиента/i);
+  if (!/^##\s+Client interview prep/i.test(s)) {
+    const idx = s.search(/##\s+Client interview prep/i);
     if (idx >= 0) {
       s = s.slice(idx);
     } else {
-      // LLM проигнорировал формат — сделаем минимальный валидный блок.
-      return renderClientPlaceholder(clientName);
+      return '';
     }
   }
   return s;
-}
-
-// ── Заглушка при отсутствии истории клиента ───────────────────────────────
-
-function renderClientPlaceholder(clientName: string): string {
-  return [
-    '## Подготовка к вопросам клиента',
-    '',
-    `_По клиенту **${clientName}** пока нет накопленной истории интервью._`,
-    '_Секция заполнится автоматически по мере проведения собеседований и накопления данных._',
-  ].join('\n');
 }
 
 // ── Сборка финального markdown ────────────────────────────────────────────
@@ -256,17 +252,17 @@ function renderPreparationDocMarkdown(params: {
     : `# ${candidateName}`;
 
   const brokerBlock = [
-    '## Запрос от брокера',
+    '## Tech Stack',
     '',
-    brokerRequest?.trim() || '_Не указан._',
+    brokerRequest?.trim() || '_Not specified._',
   ].join('\n');
 
   const cvLink = cvUrl
-    ? `**Ссылка:** ${cvUrl}`
-    : '**Ссылка:** _загружено вручную_';
+    ? `**Link:** ${cvUrl}`
+    : '**Link:** _uploaded manually_';
 
   const cvBlock = [
-    '## Резюме кандидата',
+    '## Candidate CV',
     '',
     cvLink,
     '',
@@ -275,10 +271,11 @@ function renderPreparationDocMarkdown(params: {
 
   const footerLinks = readFooterLinks();
   const footerBlock = footerLinks.length > 0
-    ? ['---', '', ...footerLinks.map((url) => `- ${url}`)].join('\n')
+    ? ['---', '', '## Useful links', '', ...footerLinks.map((url) => `- ${url}`)].join('\n')
     : '';
 
-  const parts = [title, '', brokerBlock, '', cvBlock, '', clientSectionMarkdown];
+  const parts = [title, '', brokerBlock, '', cvBlock];
+  if (clientSectionMarkdown.trim()) parts.push('', clientSectionMarkdown);
   if (footerBlock) parts.push('', footerBlock);
 
   return parts.join('\n').trim() + '\n';
