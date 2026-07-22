@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { analyzeApi, getErrorMessage, type JobStatus } from '../api/client';
 import type { AnalyzeRequest } from '@shared/schemas';
 
@@ -11,7 +11,15 @@ export function useAnalyze() {
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retriesRef = useRef(0);
+  const startedAtRef = useRef(0);
   const MAX_RETRIES = 3;
+  const MAX_POLL_MS = 3 * 60 * 1000;
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearTimeout(pollRef.current);
+    };
+  }, []);
 
   const startAnalysis = useCallback(async (data: AnalyzeRequest) => {
     setState('pending');
@@ -19,6 +27,7 @@ export function useAnalyze() {
     setResult(null);
     setError(null);
     retriesRef.current = 0;
+    startedAtRef.current = Date.now();
 
     try {
       const { data: { jobId } } = await analyzeApi.start(data);
@@ -38,6 +47,12 @@ export function useAnalyze() {
 
           if (status.state === 'failed') {
             setError('Analysis failed on the server. Please try again.');
+            setState('failed');
+            return;
+          }
+
+          if (Date.now() - startedAtRef.current > MAX_POLL_MS) {
+            setError('Analysis is taking longer than expected. Please check back later or try again.');
             setState('failed');
             return;
           }

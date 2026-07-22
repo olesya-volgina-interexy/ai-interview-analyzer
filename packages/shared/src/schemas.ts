@@ -294,3 +294,9 @@ export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
 export type UpdateProfileRequest = z.infer<typeof UpdateProfileRequestSchema>;
 export type ChangePasswordRequest = z.infer<typeof ChangePasswordRequestSchema>;
 export type AdminResetPasswordRequest = z.infer<typeof AdminResetPasswordRequestSchema>;
+
+// Re-exported here (not just from index.ts) because both the API's tsconfig
+// `paths` and the web app's Vite alias resolve the `@shared/schemas` import
+// specifier straight to this file, not through the package's index — so
+// anything imported as `from '@shared/schemas'` has to actually live here.
+export * from './stages.js';

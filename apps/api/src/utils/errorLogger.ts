@@ -72,6 +72,12 @@ export async function runStage<T>(
     return await fn();
   } catch (err) {
     logStageError(stage, err, context);
+    // Не перетираем более специфичный тег, выставленный в точке throw (например
+    // 'cv' вместо общего 'llm' для dataQualityIssue из LLM-анализа) — только
+    // подставляем стадию-обёртку, если тега ещё нет.
+    if (err && typeof err === 'object' && !('pipelineStage' in err)) {
+      (err as any).pipelineStage = stage;
+    }
     throw err;
   }
 }

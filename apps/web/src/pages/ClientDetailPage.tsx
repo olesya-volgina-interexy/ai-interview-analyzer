@@ -11,19 +11,10 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { CandidateModal } from '@/components/modals/CandidateModal';
 import { ClientInsightsBlock } from '@/components/clients/ClientInsightsBlock';
 import { ArrowLeft, Building2, Users, Target, Inbox, FileSignature, MessageSquare, Sparkles, FileText, Unlink } from 'lucide-react';
-
-function formatDate(iso: string | null) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  });
-}
-
-const STAGE_LABEL: Record<string, string> = {
-  manager_call: 'Manager Call',
-  technical: 'Technical',
-  final_result: 'Final Result',
-};
+import { formatDate } from '@/lib/format';
+import { STAGE_LABEL } from '@/lib/badges';
+import { NotFoundState } from '@/components/ui/NotFoundState';
+import { StatCard } from '@/components/dashboard/StatsCards';
 
 const RESULT_STYLE: Record<string, string> = {
   hire: 'bg-green-100 text-green-800',
@@ -97,25 +88,19 @@ export function ClientDetailPage() {
   );
 
   if (isError || !data) return (
-    <div className="p-4 md:p-6">
-      <button
-        onClick={() => navigate({ to: '/clients' })}
-        className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-600 mb-4"
-      >
-        <ArrowLeft size={16} /> Back to clients
-      </button>
-      <div className="rounded-md border border-dashed p-12 text-center">
-        <p className="text-sm text-slate-500">Client not found.</p>
-        <p className="text-xs text-slate-400 mt-1">The name may have changed or been deleted.</p>
-      </div>
-    </div>
+    <NotFoundState
+      backLabel="Back to clients"
+      onBack={() => navigate({ to: '/clients' })}
+      title="Client not found."
+      subtitle="The name may have changed or been deleted."
+    />
   );
 
   return (
     <div className="p-4 md:p-6 space-y-4">
 
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <button
           onClick={() => navigate({ to: '/clients' })}
           className="flex items-center justify-center w-11 h-11 rounded-lg bg-[#5067F4]/10 text-[#5067F4] hover:bg-[#5067F4]/20 transition-colors flex-shrink-0"
@@ -145,12 +130,12 @@ export function ClientDetailPage() {
             </div>
           )}
         </div>
-        <div className="flex gap-2 flex-shrink-0">
-          <Button variant="outline" size="sm" onClick={() => setPrepModalOpen(true)} className="gap-2">
+        <div className="flex gap-2 w-full sm:w-auto sm:flex-shrink-0">
+          <Button variant="outline" size="sm" onClick={() => setPrepModalOpen(true)} className="gap-2 flex-1 sm:flex-none">
             <FileSignature size={14} />
             Generate prep document
           </Button>
-          <Button variant="outline" size="sm" disabled title="Coming soon" className="gap-2">
+          <Button variant="outline" size="sm" disabled title="Coming soon" className="gap-2 flex-1 sm:flex-none">
             <MessageSquare size={14} />
             Open AI chat
           </Button>
@@ -235,10 +220,10 @@ export function ClientDetailPage() {
                   <thead className="bg-[#5067F4]/5 border-b border-[#5067F4]/10">
                     <tr>
                       <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[28%]">Candidate</th>
-                      <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[20%]">Stage</th>
+                      <th className="hidden md:table-cell text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[20%]">Stage</th>
                       <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[18%]">Decision</th>
                       <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[14%]">Score</th>
-                      <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[20%]">Date</th>
+                      <th className="hidden md:table-cell text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[20%]">Date</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -249,7 +234,7 @@ export function ClientDetailPage() {
                         className="hover:bg-slate-50 cursor-pointer transition-colors"
                       >
                         <td className="px-3 py-2 text-slate-700 truncate">{i.candidateName ?? '—'}</td>
-                        <td className="px-3 py-2 text-slate-600">{STAGE_LABEL[i.stage] ?? i.stage}</td>
+                        <td className="hidden md:table-cell px-3 py-2 text-slate-600">{STAGE_LABEL[i.stage] ?? i.stage}</td>
                         <td className="px-3 py-2">
                           {i.decision ? (
                             <Badge className={`${RESULT_STYLE[i.decision] ?? 'bg-slate-100 text-slate-600'} text-xs`}>
@@ -258,7 +243,7 @@ export function ClientDetailPage() {
                           ) : '—'}
                         </td>
                         <td className="px-3 py-2 text-slate-600">{i.score !== null ? `${i.score}/100` : '—'}</td>
-                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{formatDate(i.createdAt)}</td>
+                        <td className="hidden md:table-cell px-3 py-2 text-slate-500 whitespace-nowrap">{formatDate(i.createdAt)}</td>
                       </tr>
                     ))}
                   </tbody>

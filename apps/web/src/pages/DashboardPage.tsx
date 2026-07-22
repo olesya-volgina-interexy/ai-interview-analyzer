@@ -1,7 +1,8 @@
 import { useState, useCallback } from 'react';
 import { BarChart2, BarChart3, Filter, Sparkles } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { interviewsApi, statsApi } from '@/api/client';
+import { toast } from 'sonner';
+import { interviewsApi, statsApi, getErrorMessage } from '@/api/client';
 import { StatsCards } from '@/components/dashboard/StatsCards';
 import { Charts } from '@/components/dashboard/Charts';
 import { RequestsStatsCard } from '@/components/dashboard/RequestsStatsCard';
@@ -12,10 +13,17 @@ import { LevelScoresCard, RoleScoresCard } from '@/components/dashboard/Candidat
 import { InterviewsTable } from '@/components/interviews/InterviewsTable';
 import { CandidateModal } from '@/components/modals/CandidateModal';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorMessage } from '@/components/ui/ErrorMessage';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useLayout } from '@/context/LayoutContext';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { useStatsLiveUpdates } from '@/hooks/useStatsLiveUpdates';
+
+// Fallback poll interval — SSE (useStatsLiveUpdates) delivers near-instant
+// updates; this just keeps things eventually-correct if that connection is
+// ever unavailable (older browser, blocked by a proxy, etc.).
+const STATS_POLL_INTERVAL_MS = 60_000;
 
 function ChartCardSkeleton({ height = 200 }: { height?: number }) {
   return (
@@ -83,9 +91,13 @@ export function DashboardPage() {
 
   const periodLabel = getPeriodLabel();
 
-  const { data: stats, isLoading: statsLoading } = useQuery({
+  useStatsLiveUpdates();
+
+  const { data: stats, isLoading: statsLoading, isError: statsError, error: statsErrorObj, refetch: refetchStats } = useQuery({
     queryKey: ['stats'],
     queryFn: () => interviewsApi.getStats().then(r => r.data),
+    refetchInterval: STATS_POLL_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   });
   const queryClient = useQueryClient();
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -103,29 +115,39 @@ export function DashboardPage() {
       ).toISOString()
     : undefined;
 
-  const { data: overview, isLoading: overviewLoading } = useQuery({
+  const { data: overview, isLoading: overviewLoading, isError: overviewError, error: overviewErrorObj, refetch: refetchOverview } = useQuery({
     queryKey: ['stats', 'overview', fromIso, toIso],
     queryFn: () => statsApi.getOverview({ from: fromIso, to: toIso }).then(r => r.data),
     enabled: !!fromIso && !!toIso,
+    refetchInterval: STATS_POLL_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   });
 
   const handleRefreshRequests = useCallback(async () => {
     setIsRefreshing(true);
-    const fresh = await statsApi.getOverview({
-      from: fromIso,
-      to: toIso,
-      refresh: '1',
-    }).then(r => r.data);
-    queryClient.setQueryData(['stats', 'overview', fromIso, toIso], fresh);
-    setIsRefreshing(false);
+    try {
+      const fresh = await statsApi.getOverview({
+        from: fromIso,
+        to: toIso,
+        refresh: '1',
+      }).then(r => r.data);
+      queryClient.setQueryData(['stats', 'overview', fromIso, toIso], fresh);
+    } catch (err) {
+      toast.error(getErrorMessage(err));
+    } finally {
+      setIsRefreshing(false);
+    }
   }, [fromIso, toIso, queryClient]);
 
   const isEmpty = !statsLoading && !overviewLoading && stats?.total === 0 && (overview?.requests.total ?? 0) === 0;
 
-  const { data: recent, isLoading } = useQuery({
+  const { data: recent, isLoading, isError: recentError, error: recentErrorObj, refetch: refetchRecent } = useQuery({
     queryKey: ['interviews', 'recent'],
     queryFn: () => interviewsApi.getList({ page: 1 }).then(r => r.data),
   });
+
+  const dashboardError = statsError ? statsErrorObj : overviewError ? overviewErrorObj : recentError ? recentErrorObj : null;
+  const refetchAll = () => { refetchStats(); refetchOverview(); refetchRecent(); };
 
   return (
     <div className="p-4 md:p-6 space-y-6">
@@ -133,6 +155,10 @@ export function DashboardPage() {
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Dashboard</h1>
       </div>
+
+      {dashboardError && (
+        <ErrorMessage error={getErrorMessage(dashboardError)} onRetry={refetchAll} />
+      )}
 
       {/* KPI Cards - always visible */}
       <StatsCards stats={stats} overview={overview} />

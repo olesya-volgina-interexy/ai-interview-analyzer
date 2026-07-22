@@ -35,21 +35,37 @@ export function Charts({ stats }: ChartsProps) {
           <CardTitle className="text-sm">Interviews by Role</CardTitle>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={roleData} barSize={32}>
-              <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={24} />
-              <Tooltip
-                contentStyle={{ fontSize: 12, borderRadius: 6 }}
-                cursor={{ fill: '#f1f5f9' }}
-              />
-              <Bar dataKey="value" name="Interviews" radius={[4, 4, 0, 0]}>
-                {roleData.map((_, i) => (
-                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          {/* Phones: horizontal bars keep role names readable, no angled text */}
+          <div className="sm:hidden">
+            <ResponsiveContainer width="100%" height={Math.max(200, roleData.length * 34)}>
+              <BarChart data={roleData} layout="vertical" barSize={18} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12 }} />
+                <YAxis type="category" dataKey="name" width={150} tick={{ fontSize: 11 }} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 6 }} cursor={{ fill: '#f1f5f9' }} />
+                <Bar dataKey="value" name="Interviews" radius={[0, 4, 4, 0]}>
+                  {roleData.map((_, i) => (
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Tablet+: vertical bars, no axis labels — colors keyed via legend below */}
+          <div className="hidden sm:block">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={roleData} barSize={28} margin={{ top: 4, right: 8, left: 8, bottom: 4 }}>
+                <XAxis dataKey="name" hide />
+                <YAxis allowDecimals={false} tick={{ fontSize: 12 }} width={28} />
+                <Tooltip contentStyle={{ fontSize: 12, borderRadius: 6 }} cursor={{ fill: '#f1f5f9' }} />
+                <Bar dataKey="value" name="Interviews" radius={[4, 4, 0, 0]}>
+                  {roleData.map((_, i) => (
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </CardContent>
       </Card>
 

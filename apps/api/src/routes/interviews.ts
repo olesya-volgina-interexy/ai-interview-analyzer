@@ -1,6 +1,10 @@
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { getInterviews, getInterviewById } from '../db/db.service';
 import { prisma } from '../db/prisma';
+import { getScore, avg } from '../utils/scoring';
+import { markdownToPdf } from '../services/pdf.service';
+import { buildInterviewReportMarkdown } from '../services/interviewReport.service';
 
 export async function interviewRoutes(fastify: FastifyInstance) {
   fastify.get('/interviews', async (request) => {
@@ -27,11 +31,9 @@ export async function interviewRoutes(fastify: FastifyInstance) {
   const hireRate = total > 0 ? Math.round((hired / total) * 100) : 0;
 
   const scores = interviews
-    .map(i => (i.analysis as any)?.score)
+    .map(i => getScore(i.analysis))
     .filter(Boolean) as number[];
-  const avgScore = scores.length > 0
-    ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
-    : 0;
+  const avgScore = avg(scores) ?? 0;
 
   const byRole = interviews.reduce((acc, i) => {
     acc[i.role] = (acc[i.role] ?? 0) + 1;
@@ -79,6 +81,49 @@ export async function interviewRoutes(fastify: FastifyInstance) {
       const { id } = request.params;
       await prisma.interview.delete({ where: { id } });
       return reply.status(204).send();
+    }
+  );
+
+  fastify.get<{ Params: { id: string } }>(
+    '/interviews/:id/pdf',
+    async (request, reply) => {
+      const { id } = request.params;
+      const interview = await getInterviewById(id);
+      if (!interview) return reply.status(404).send({ error: 'Not found' });
+
+      const markdown = buildInterviewReportMarkdown(interview);
+      const title = `${interview.candidateName ?? 'Candidate'} — ${interview.stage} analysis`;
+      const pdf = await markdownToPdf(markdown, title);
+
+      const safeName = `${interview.candidateName ?? 'candidate'}-${interview.stage}-analysis.pdf`
+        .replace(/[^a-z0-9._-]+/gi, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+
+      return reply
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', `attachment; filename="${safeName}"`)
+        .send(pdf);
+    }
+  );
+
+  fastify.patch<{ Params: { id: string } }>(
+    '/interviews/:id',
+    async (request, reply) => {
+      const { id } = request.params;
+      const body = z.object({
+        candidateName: z.string().trim().optional(),
+        managerName: z.string().trim().optional(),
+      }).parse(request.body);
+
+      const existing = await prisma.interview.findUnique({ where: { id }, select: { id: true } });
+      if (!existing) return reply.status(404).send({ error: 'Not found' });
+
+      const data: Record<string, string | null> = {};
+      if (body.candidateName !== undefined) data.candidateName = body.candidateName || null;
+      if (body.managerName !== undefined) data.managerName = body.managerName || null;
+
+      return prisma.interview.update({ where: { id }, data });
     }
   );
 }

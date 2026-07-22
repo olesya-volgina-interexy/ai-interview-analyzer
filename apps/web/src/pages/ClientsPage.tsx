@@ -2,22 +2,18 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { clientsApi, getErrorMessage } from '@/api/client';
-import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Building2, Search, X, GitMerge, Loader2 } from 'lucide-react';
+import { formatDate } from '@/lib/format';
+import { useDebouncedValue } from '@/hooks/useDebouncedValue';
+import { TableSkeleton } from '@/components/ui/TableSkeleton';
+import { PaginationFooter } from '@/components/ui/PaginationFooter';
 
 type SortKey = 'name' | 'interviewCount' | 'hireRate' | 'requestCount' | 'lastInterviewAt';
 type SortDir = 'asc' | 'desc';
-
-function formatDate(iso: string | null) {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  });
-}
 
 function hireRateColor(rate: number) {
   if (rate >= 70) return { bg: '#EAF3DE', color: '#3B6D11' };
@@ -31,7 +27,6 @@ export function ClientsPage() {
   const limit = 20;
 
   const [search, setSearch] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sortKey, setSortKey] = useState<SortKey>('interviewCount');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
@@ -96,10 +91,8 @@ export function ClientsPage() {
     mergeMutation.mutate({ canonical, aliases });
   };
 
-  useEffect(() => {
-    const timer = setTimeout(() => { setDebouncedSearch(search); setPage(1); }, 300);
-    return () => clearTimeout(timer);
-  }, [search]);
+  const debouncedSearch = useDebouncedValue(search, 300);
+  useEffect(() => { setPage(1); }, [debouncedSearch]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -151,13 +144,13 @@ export function ClientsPage() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative">
+        <div className="relative w-full sm:w-auto">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search by client name..."
-            className="h-8 pl-8 pr-3 text-sm rounded-full border border-slate-200 outline-none w-64 transition-colors"
+            className="h-8 pl-8 pr-3 text-sm rounded-full border border-slate-200 outline-none w-full sm:w-64 transition-colors"
             style={search ? { background: '#185FA5', color: 'white', borderColor: 'transparent' } : { background: 'white', color: '#475569' }}
           />
         </div>
@@ -208,9 +201,7 @@ export function ClientsPage() {
       )}
 
       {isLoading ? (
-        <div className="space-y-2">
-          {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-md" />)}
-        </div>
+        <TableSkeleton />
       ) : !rawItems.length ? (
         <EmptyState
           icon={Building2}
@@ -224,20 +215,20 @@ export function ClientsPage() {
         </div>
       ) : (
         <div className="rounded-xl border border-slate-200 overflow-hidden">
-          <table className="w-full text-sm table-fixed">
+          <table className="w-full text-sm md:table-fixed">
             <thead>
               <tr style={{ background: '#EEF0FE', borderBottom: '0.5px solid #D9DEFB' }}>
                 {mergeMode && <th className="w-[44px] px-3 py-3" />}
                 <th
                   onClick={() => toggleSort('name')}
-                  className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[30%] cursor-pointer select-none"
+                  className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-full md:w-[30%] cursor-pointer select-none"
                   style={{ color: '#3D52D9' }}
                 >
                   Client<SortIcon k="name" />
                 </th>
                 <th
                   onClick={() => toggleSort('interviewCount')}
-                  className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[14%] cursor-pointer select-none"
+                  className="hidden md:table-cell text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[14%] cursor-pointer select-none"
                   style={{ color: '#3D52D9' }}
                 >
                   Interviews<SortIcon k="interviewCount" />
@@ -251,14 +242,14 @@ export function ClientsPage() {
                 </th>
                 <th
                   onClick={() => toggleSort('requestCount')}
-                  className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[14%] cursor-pointer select-none"
+                  className="hidden md:table-cell text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[14%] cursor-pointer select-none"
                   style={{ color: '#3D52D9' }}
                 >
                   Requests<SortIcon k="requestCount" />
                 </th>
                 <th
                   onClick={() => toggleSort('lastInterviewAt')}
-                  className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[24%] cursor-pointer select-none"
+                  className="hidden md:table-cell text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[24%] cursor-pointer select-none"
                   style={{ color: '#3D52D9' }}
                 >
                   Last Interview<SortIcon k="lastInterviewAt" />
@@ -300,7 +291,7 @@ export function ClientsPage() {
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 py-3" style={{ color: 'var(--color-text-secondary)' }}>{c.interviewCount}</td>
+                    <td className="hidden md:table-cell px-4 py-3" style={{ color: 'var(--color-text-secondary)' }}>{c.interviewCount}</td>
                     <td className="px-4 py-3">
                       {c.interviewCount > 0 ? (
                         <span
@@ -313,8 +304,8 @@ export function ClientsPage() {
                         <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3" style={{ color: 'var(--color-text-secondary)' }}>{c.requestCount}</td>
-                    <td className="px-4 py-3 whitespace-nowrap" style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>
+                    <td className="hidden md:table-cell px-4 py-3" style={{ color: 'var(--color-text-secondary)' }}>{c.requestCount}</td>
+                    <td className="hidden md:table-cell px-4 py-3 whitespace-nowrap" style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>
                       {formatDate(c.lastInterviewAt)}
                     </td>
                   </tr>
@@ -324,23 +315,7 @@ export function ClientsPage() {
           </table>
 
           {(page > 1 || hasNext) && (
-            <div className="flex items-center justify-center gap-3 p-3 border-t border-slate-100">
-              <button
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="text-sm px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                ← Previous
-              </button>
-              <span className="text-sm text-slate-400">Page {page}</span>
-              <button
-                onClick={() => setPage(p => p + 1)}
-                disabled={!hasNext}
-                className="text-sm px-3 py-1.5 rounded-full border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                Next →
-              </button>
-            </div>
+            <PaginationFooter page={page} hasNext={hasNext} onPageChange={setPage} />
           )}
         </div>
       )}

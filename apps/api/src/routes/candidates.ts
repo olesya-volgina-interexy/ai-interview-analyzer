@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../db/prisma';
 import { clusterTextItems } from '../services/llm.service';
+import { getScore, avg } from '../utils/scoring';
 import type { Prisma } from '@prisma/client';
 
 export async function candidateRoutes(fastify: FastifyInstance) {
@@ -70,7 +71,7 @@ export async function candidateRoutes(fastify: FastifyInstance) {
 
     const scoreMap: Record<string, number[]> = {};
     for (const r of scoreRows) {
-      const score = (r.analysis as any)?.score;
+      const score = getScore(r.analysis);
       if (typeof score === 'number' && r.candidateName) {
         const key = r.candidateName.toLowerCase();
         if (!scoreMap[key]) scoreMap[key] = [];
@@ -87,9 +88,7 @@ export async function candidateRoutes(fastify: FastifyInstance) {
         failed: Number(r.failed),
         lastInterviewAt: r.lastInterviewAt.toISOString(),
         roles: r.roles ? r.roles.split(',') : [],
-        avgScore: scores.length > 0
-          ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
-          : null,
+        avgScore: avg(scores),
       };
     });
 
@@ -174,7 +173,7 @@ export async function candidateRoutes(fastify: FastifyInstance) {
       ]);
 
       const scores = interviews
-        .map(i => (i.analysis as any)?.score)
+        .map(i => getScore(i.analysis))
         .filter((s): s is number => typeof s === 'number');
 
       // CV sent stats
@@ -197,9 +196,7 @@ export async function candidateRoutes(fastify: FastifyInstance) {
         totalCvSent,
         successful: interviews.filter(i => i.decision === 'hired').length,
         failed: interviews.filter(i => i.decision === 'rejected').length,
-        avgScore: scores.length > 0
-          ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
-          : null,
+        avgScore: avg(scores),
         roles: [...new Set(interviews.map(i => i.role))],
         topStrengths,
         topWeaknesses,
@@ -216,7 +213,7 @@ export async function candidateRoutes(fastify: FastifyInstance) {
           analysisDate: i.analysisDate ? i.analysisDate.toISOString() : null,
           recommendation: (i.analysis as any)?.recommendation ?? null,
           stageResult: (i.analysis as any)?.stageResult ?? null,
-          score: (i.analysis as any)?.score ?? null,
+          score: getScore(i.analysis) ?? null,
         })),
       };
     }

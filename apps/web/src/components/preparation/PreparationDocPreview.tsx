@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { preparationApi, getErrorMessage } from '@/api/client';
 import { PreparationDocEditor } from './PreparationDocEditor';
+import { formatDateTime } from '@/lib/format';
 import { Copy, Download, Check, FileText, Loader2, Pencil, X, Save } from 'lucide-react';
 
 interface PreparationDocPreviewProps {
@@ -91,13 +92,7 @@ export function PreparationDocPreview({
     }
   };
 
-  const formattedDate = new Date(generatedAt).toLocaleString('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  const formattedDate = formatDateTime(generatedAt);
 
   return (
     <div className="space-y-4">

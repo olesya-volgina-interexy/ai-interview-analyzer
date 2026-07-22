@@ -27,3 +27,9 @@ logs/
 # Docker volumes
 postgres_data/
 qdrant_data/
+
+# DB dumps (may contain candidate PII — never commit)
+*.dump
+
+# Docs
+docs/

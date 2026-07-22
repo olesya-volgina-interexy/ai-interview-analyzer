@@ -54,6 +54,11 @@ export interface Step1RedFlag {
 }
 
 export interface Step1Output {
+  // Заполняется LLM, только если транскрипт в принципе непригоден для анализа
+  // (не тот тип звонка, нет реального разговора и т.п.) — не для слабого/короткого
+  // интервью. Проверяется вызывающей стороной (llm.service.ts) до запуска
+  // processExtraction/Step 2.
+  dataQualityIssue?: { type: string; explanation: string } | null;
   parsedBrokerRequirements?: Step1Requirement[];
   questions: Step1Question[];
   candidateSkills: Array<{
@@ -179,8 +184,6 @@ export function processExtraction(
   brokerRequest: string | undefined,
   _meta: InterviewMeta,
 ): ProcessedExtraction {
-  const log: string[] = [];
-
   const parsedRequirements = step1.parsedBrokerRequirements ?? [];
   const questions: Step1Question[] = step1.questions ?? [];
   const candidateSkills = step1.candidateSkills ?? [];
@@ -445,7 +448,6 @@ export function processExtraction(
     strengths: strengths.length,
     weaknesses: weaknesses.length,
     risks: risks.length,
-    changes: log,
   });
 
   return {

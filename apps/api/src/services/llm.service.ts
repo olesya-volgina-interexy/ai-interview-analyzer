@@ -95,8 +95,31 @@ export async function analyzeInterview(
     throw new Error('LLM response truncated — increase max_completion_tokens or shorten the schema');
   }
 
+  let parsed: any;
   try {
-    const parsed = JSON.parse(rawContent);
+    parsed = JSON.parse(rawContent);
+  } catch (err) {
+    console.error('[stage:llm] analyzeInterview parse/schema failed', {
+      ...describeError(err),
+      stage: meta.stage,
+      role: meta.role,
+      level: meta.level,
+      rawContentPreview: rawContent.slice(0, 1500),
+    });
+    throw new Error('Failed to parse LLM response');
+  }
+
+  if (parsed.dataQualityIssue) {
+    const issue = parsed.dataQualityIssue;
+    console.warn('[stage:llm] manager_call flagged data quality issue', issue);
+    const err = new Error(
+      `${issue.source === 'cv' ? 'CV' : 'Transcript'} does not look right for this call: ${issue.explanation}`
+    );
+    (err as any).pipelineStage = issue.source === 'cv' ? 'cv' : 'transcript';
+    throw err;
+  }
+
+  try {
     return CandidateAnalysisSchema.parse(parsed);
   } catch (err) {
     console.error('[stage:llm] analyzeInterview parse/schema failed', {
@@ -161,6 +184,15 @@ async function analyzeTechnicalInterview(
   }
 
   console.log('[stage:llm] technical step 1 output:', extractionRaw);
+
+  if (step1Parsed.dataQualityIssue) {
+    const issue = step1Parsed.dataQualityIssue;
+    console.warn('[stage:llm] technical step1 flagged data quality issue', issue);
+    const err = new Error(`Transcript does not look like a valid technical interview: ${issue.explanation}`);
+    (err as any).pipelineStage = 'transcript';
+    throw err;
+  }
+
   console.log('[stage:llm] technical step 1 done, starting middleware + step 2');
 
   const processed = processExtraction(step1Parsed, options?.cvText, options?.brokerRequest, meta);
