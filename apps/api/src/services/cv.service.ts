@@ -1,14 +1,13 @@
 // apps/api/src/services/cv.service.ts
 
-import axios from 'axios';
 import pdfParse from 'pdf-parse';
 import { llmClient, LLM_MODEL } from './llm.client';
 import { describeError } from '../utils/errorLogger';
 import { sanitizePdfText, assertExtractedTextPlausible } from '../utils/pdfUtils';
 import { stripNullBytes } from '../utils/textSanitize';
+import { assertPublicHttpUrl, isExactHost, safeAxios as axios } from '../utils/ssrf';
 
-// Константы для определения типа ссылки
-const LINEAR_UPLOAD_RE = /uploads\.linear\.app\//i;
+const LINEAR_UPLOAD_HOST = 'uploads.linear.app';
 
 // ── Главная функция извлечения текста ──────────────────────────────────
 
@@ -18,26 +17,23 @@ export async function extractCVText(cvUrl: string): Promise<string> {
   const url = cvUrl.trim();
   if (!url) return '';
 
-  try {
-    if (isPdfUrl(url)) {
-      return await fetchPdfContent(url, CV_MAX_CHARS);
-    }
+  await assertPublicHttpUrl(url);
 
-    // Linear-загрузки приходят без расширения (uploads.linear.app/<uuid>/...),
-    // поэтому тип определяем по содержимому, а не по URL.
-    if (LINEAR_UPLOAD_RE.test(url)) {
-      return await fetchLinearUploadContent(url, CV_MAX_CHARS);
-    }
-
-    if (isTextFile(url)) {
-      return await fetchRawTextContent(url, CV_MAX_CHARS, false);
-    }
-
-    return await fetchGenericWebContent(url, CV_MAX_CHARS);
-  } catch (err: any) {
-    logError(url, err);
-    return '';
+  if (isPdfUrl(url)) {
+    return await fetchPdfContent(url, CV_MAX_CHARS);
   }
+
+  // Linear-загрузки приходят без расширения (uploads.linear.app/<uuid>/...),
+  // поэтому тип определяем по содержимому, а не по URL.
+  if (isExactHost(url, LINEAR_UPLOAD_HOST)) {
+    return await fetchLinearUploadContent(url, CV_MAX_CHARS);
+  }
+
+  if (isTextFile(url)) {
+    return await fetchRawTextContent(url, CV_MAX_CHARS, false);
+  }
+
+  return await fetchGenericWebContent(url, CV_MAX_CHARS);
 }
 
 // ── Приватные методы загрузки и парсинга ────────────────────────────────
@@ -62,7 +58,7 @@ async function fetchPdfContent(url: string, maxChars: number): Promise<string> {
 // сигнатуре. PDF (%PDF) парсим через pdf-parse, остальное читаем как текст.
 async function fetchLinearUploadContent(url: string, maxChars: number): Promise<string> {
   const headers: Record<string, string> = { 'User-Agent': 'Mozilla/5.0' };
-  if (process.env.LINEAR_API_KEY) {
+  if (process.env.LINEAR_API_KEY && isExactHost(url, LINEAR_UPLOAD_HOST)) {
     headers['Authorization'] = process.env.LINEAR_API_KEY;
   }
 
@@ -92,7 +88,7 @@ async function fetchLinearUploadContent(url: string, maxChars: number): Promise<
 async function fetchRawTextContent(url: string, maxChars: number, withLinearAuth = false): Promise<string> {
   const headers: Record<string, string> = { 'User-Agent': 'Mozilla/5.0' };
 
-  if (withLinearAuth && process.env.LINEAR_API_KEY) {
+  if (withLinearAuth && process.env.LINEAR_API_KEY && isExactHost(url, LINEAR_UPLOAD_HOST)) {
     headers['Authorization'] = process.env.LINEAR_API_KEY;
   }
 
@@ -144,10 +140,6 @@ function isPdfUrl(url: string): boolean {
 
 function isTextFile(url: string): boolean {
   return /\.(txt|rtf)(\?.*)?$/i.test(url);
-}
-
-function logError(url: string, err: any) {
-  console.warn('[stage:cv] fetch failed', { url, ...describeError(err) });
 }
 
 // ── Функции извлечения данных через LLM ───────────────────────────────────

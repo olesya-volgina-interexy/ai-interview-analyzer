@@ -10,8 +10,9 @@ import {
   mergeClients,
   unmergeClients,
 } from '../services/clientAlias.service';
-import { redis } from '../db/redis';
 import type { ClientInsights } from '@shared/schemas';
+import { invalidateStatsCache } from '../services/statsCache';
+import { getScore } from '../utils/scoring';
 
 const PROFILE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -28,13 +29,6 @@ const MergeClientsSchema = z.object({
 const UnmergeClientsSchema = z.object({
   aliases: z.array(z.string().min(1)).min(1),
 });
-
-async function invalidateStatsCache() {
-  try {
-    const keys = await redis.keys('stats:overview:*');
-    if (keys.length > 0) await redis.del(...keys);
-  } catch {}
-}
 
 type ClientAggregates = {
   interviewCount: number;
@@ -246,7 +240,7 @@ export async function clientRoutes(fastify: FastifyInstance) {
           candidateName: i.candidateName,
           stage: i.stage,
           decision: i.decision,
-          score: (i.analysis as any)?.score ?? null,
+          score: getScore(i.analysis) ?? null,
           createdAt: i.createdAt.toISOString(),
         })),
         managers: managerRows.map(r => r.managerName).filter((m): m is string => !!m),

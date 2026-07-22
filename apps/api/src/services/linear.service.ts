@@ -1,6 +1,6 @@
 // apps/api/src/services/linear.service.ts
 
-import { LinearClient } from '@linear/sdk';
+import { resolveStage, type StageResolverLogger } from './stageResolver';
 
 // Нормализуем ключ: часто в env попадают пробелы/кавычки/перенос строки,
 // а иногда — префикс "Bearer ". Убираем всё, что может сломать авторизацию.
@@ -15,10 +15,6 @@ function normalizeApiKey(raw: string | undefined): string | undefined {
 }
 
 const LINEAR_API_KEY = normalizeApiKey(process.env.LINEAR_API_KEY);
-
-export const linear = new LinearClient({
-  apiKey: LINEAR_API_KEY,
-});
 
 // Диагностика на старте — дергаем простой запрос и логируем результат.
 // Не роняем процесс: лучше живой сервер с видимой ошибкой авторизации,
@@ -369,6 +365,71 @@ export async function getComment(commentId: string): Promise<LinearCommentDetail
     id: commentId,
   });
   return data.comment ?? null;
+}
+
+// ── История статусов тикета (источник правды для time-on-stage) ───────────
+// Локальное зеркало (IncomingRequestStatusHistory) пишется только по
+// вебхукам и может терять переходы (пропущенный вебхук, гонка, ручной фикс
+// статуса в Linear). Эта функция тянет реальную историю смен workflow-стейта
+// прямо из Linear, чтобы её можно было использовать для реконсиляции.
+
+export interface LinearStatusHistoryEntry {
+  status: string;
+  enteredAt: string;
+}
+
+export async function getIssueStatusHistory(
+  issueId: string,
+  logger?: StageResolverLogger
+): Promise<LinearStatusHistoryEntry[]> {
+  const query = `
+    query IssueHistory($id: String!, $after: String) {
+      issue(id: $id) {
+        history(first: 100, after: $after) {
+          nodes {
+            createdAt
+            fromState { id name }
+            toState { id name }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    }
+  `;
+
+  type StateRef = { id: string; name: string } | null;
+  const nodes: Array<{ createdAt: string; fromState: StateRef; toState: StateRef }> = [];
+  let after: string | null = null;
+
+  // guard — Linear issue history is bounded in practice; this caps runaway pagination.
+  for (let page = 0; page < 20; page++) {
+    const data = await linearGraphQL<{
+      issue: {
+        history: {
+          nodes: Array<{ createdAt: string; fromState: StateRef; toState: StateRef }>;
+          pageInfo: { hasNextPage: boolean; endCursor: string | null };
+        };
+      } | null;
+    }>(query, { id: issueId, after });
+
+    if (!data.issue) break;
+    nodes.push(...data.issue.history.nodes);
+
+    if (!data.issue.history.pageInfo.hasNextPage) break;
+    after = data.issue.history.pageInfo.endCursor;
+  }
+
+  // Только записи о реальной смене workflow-стейта (history также содержит
+  // смены assignee/labels/etc., где toState отсутствует). Резолвим по
+  // стабильному id стейта (resolveStage), а не по имени напрямую — имя
+  // могут переименовать в Linear в любой момент (см. stageResolver.ts).
+  // Сортируем от старых к новым.
+  return nodes
+    .filter(n => n.toState)
+    .map(n => ({ status: resolveStage(n.toState, logger), createdAt: n.createdAt }))
+    .filter((n): n is { status: string; createdAt: string } => !!n.status)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    .map(n => ({ status: n.status, enteredAt: n.createdAt }));
 }
 
 // ── Постинг reply в ветку кандидата (через прямой GraphQL mutation) ───────

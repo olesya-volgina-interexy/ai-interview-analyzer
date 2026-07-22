@@ -9,11 +9,12 @@ interface StatCardProps {
   sub?: string;
   icon: ReactNode;
   accent: string;
+  className?: string;
 }
 
-function StatCard({ label, value, sub, icon, accent }: StatCardProps) {
+export function StatCard({ label, value, sub, icon, accent, className }: StatCardProps) {
   return (
-    <Card>
+    <Card className={className}>
       <CardContent className="pt-1 pb-1">
         <div className="flex items-start gap-3">
           <div className={`flex-shrink-0 rounded-lg p-2 ${accent}`}>
@@ -97,6 +98,7 @@ export function StatsCards({
         sub="Technical interviews only"
       />
       <StatCard
+        className="col-span-2 lg:col-span-1"
         icon={<Award size={18} />}
         accent="bg-amber-50 text-amber-600"
         label="Top Role"

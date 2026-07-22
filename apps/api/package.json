@@ -6,11 +6,14 @@
     "build": "pnpm --filter @shared/schemas build && prisma generate && tsc && tsc-alias",
     "start": "pnpm prisma migrate deploy && pnpm prisma db seed && node dist/index.js",
     "migrate:incoming": "tsx src/scripts/migrate-incoming-requests.ts",
-    "backfill:clients": "tsx src/scripts/backfill-clients.ts"
+    "backfill:clients": "tsx src/scripts/backfill-clients.ts",
+    "backfill:pipeline": "tsx src/scripts/backfill-pipeline-candidates.ts",
+    "reconcile:status-history": "tsx src/scripts/reconcile-status-history.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.0",
     "@fastify/env": "^4.3.0",
+    "@fastify/helmet": "^11.1.1",
     "@fastify/jwt": "^7.2.4",
     "@fastify/multipart": "^8.3.0",
     "@fastify/rate-limit": "^8.1.1",

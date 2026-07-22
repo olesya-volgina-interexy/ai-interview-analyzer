@@ -184,6 +184,12 @@ export const interviewsApi = {
   getStats: () =>
     api.get<InterviewStats>('/interviews/stats'),
 
+  update: (id: string, data: { candidateName?: string; managerName?: string }) =>
+    api.patch<InterviewDetail>(`/interviews/${id}`, data),
+
+  downloadPdf: (id: string) =>
+    api.get<Blob>(`/interviews/${id}/pdf`, { responseType: 'blob' }),
+
   delete: (id: string) =>
     api.delete(`/interviews/${id}`),
 };
@@ -216,7 +222,26 @@ export interface StatsOverview {
     avgTechnicalToFinalDays: number | null;
     avgTotalDays: number | null;
     avgDaysToHired: number | null;
-    avgTimePerStage: Record<string, number | null>;
+    stages: Array<{
+      key: string;
+      label: string;
+      avgDaysCompleted: number | null;
+      completedCount: number;
+      currentOccupancy: number;
+      avgDaysInFlight: number | null;
+      skippedCount: number;
+      regressionInCount: number;
+      regressionOutCount: number;
+      revisitCount: number;
+    }>;
+    transitions: Array<{
+      from: string;
+      to: string;
+      count: number;
+      avgDays: number | null;
+      kind: 'step' | 'skip' | 'regression' | 'exit' | 'reopen';
+      skipsOver: string[];
+    }>;
     trend: Array<{ month: string; count: number }>;
   };
   quality: {
@@ -368,6 +393,15 @@ export const clientsApi = {
 export const statsApi = {
   getOverview: (params?: { from?: string; to?: string; refresh?: string }) =>
     api.get<StatsOverview>('/stats/overview', { params }),
+  // EventSource can't send an Authorization header, so the token travels as
+  // a query param here — the API verifies it itself for this one route
+  // (see apps/api/src/routes/statsStream.ts). Returns null if there's no
+  // token yet (e.g. logged out) so callers can skip connecting.
+  getStreamUrl: (): string | null => {
+    const token = localStorage.getItem('accessToken');
+    if (!token) return null;
+    return `${BASE_URL}/stats/stream?token=${encodeURIComponent(token)}`;
+  },
 };
 
 export const uploadApi = {

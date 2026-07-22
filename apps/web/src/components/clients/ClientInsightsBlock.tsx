@@ -7,21 +7,15 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { AlertTriangle, RefreshCw, Sparkles, Database } from 'lucide-react';
+import { CardCarousel } from '@/components/ui/CardCarousel';
 import type { ClientInsights } from '@shared/schemas';
+import { formatDateTime } from '@/lib/format';
 
 const HANDLED_STYLE: Record<string, { bg: string; color: string; label: string }> = {
   well:    { bg: '#EAF3DE', color: '#3B6D11', label: 'Well' },
   partial: { bg: '#FAEEDA', color: '#854F0B', label: 'Partial' },
   poor:    { bg: '#FCEBEB', color: '#A32D2D', label: 'Poor' },
 };
-
-function formatDate(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
-}
 
 interface ClientInsightsBlockProps {
   clientName: string;
@@ -118,7 +112,7 @@ export function ClientInsightsBlock({ clientName }: ClientInsightsBlockProps) {
             <div className="flex-1 min-w-0">
               <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{data.summary}</p>
               <p className="text-xs text-slate-400 mt-2">
-                Based on {data.basedOnInterviews} interviews · Updated {formatDate(data.generatedAt)}
+                Based on {data.basedOnInterviews} interviews · Updated {formatDateTime(data.generatedAt)}
               </p>
             </div>
             <Button
@@ -146,8 +140,8 @@ export function ClientInsightsBlock({ clientName }: ClientInsightsBlockProps) {
               <thead className="bg-[#5067F4]/5 border-b border-[#5067F4]/10">
                 <tr>
                   <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[48%]">Question</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[24%]">Topic</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[12%]">Frequency</th>
+                  <th className="hidden md:table-cell text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[24%]">Topic</th>
+                  <th className="hidden md:table-cell text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[12%]">Frequency</th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[16%]">Handled</th>
                 </tr>
               </thead>
@@ -157,12 +151,12 @@ export function ClientInsightsBlock({ clientName }: ClientInsightsBlockProps) {
                   return (
                     <tr key={`${q.topic}-${idx}`} className="hover:bg-slate-50 transition-colors">
                       <td className="px-3 py-2 text-slate-700 truncate" title={q.question}>{q.question}</td>
-                      <td className="px-3 py-2">
+                      <td className="hidden md:table-cell px-3 py-2">
                         <Badge className="bg-slate-100 text-slate-600 hover:bg-slate-200 text-xs font-medium">
                           {q.topic}
                         </Badge>
                       </td>
-                      <td className="px-3 py-2 text-slate-600">{q.frequency}</td>
+                      <td className="hidden md:table-cell px-3 py-2 text-slate-600">{q.frequency}</td>
                       <td className="px-3 py-2">
                         {h ? (
                           <span
@@ -196,7 +190,7 @@ export function ClientInsightsBlock({ clientName }: ClientInsightsBlockProps) {
 
       {/* Patterns: success / failure */}
       {(data.successPatterns.length > 0 || data.failurePatterns.length > 0) && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <CardCarousel gridClass="sm:grid-cols-2">
           {data.successPatterns.length > 0 && (
             <Card>
               <CardHeader className="pb-2">
@@ -237,7 +231,7 @@ export function ClientInsightsBlock({ clientName }: ClientInsightsBlockProps) {
               </CardContent>
             </Card>
           )}
-        </div>
+        </CardCarousel>
       )}
 
       {/* Red flags */}
@@ -273,7 +267,7 @@ export function ClientInsightsBlock({ clientName }: ClientInsightsBlockProps) {
               <thead className="bg-[#5067F4]/5 border-b border-[#5067F4]/10">
                 <tr>
                   <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[60%]">Name</th>
-                  <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[20%]">Interviews</th>
+                  <th className="hidden md:table-cell text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[20%]">Interviews</th>
                   <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[20%]">Avg Score</th>
                 </tr>
               </thead>
@@ -283,7 +277,7 @@ export function ClientInsightsBlock({ clientName }: ClientInsightsBlockProps) {
                     <td className="px-3 py-2 text-slate-700">
                       {m.managerName || <span className="text-slate-400 italic">Unknown manager</span>}
                     </td>
-                    <td className="px-3 py-2 text-slate-600">{m.interviewCount}</td>
+                    <td className="hidden md:table-cell px-3 py-2 text-slate-600">{m.interviewCount}</td>
                     <td className="px-3 py-2 text-slate-600">
                       {m.avgScore !== null ? `${m.avgScore}/100` : <span className="text-slate-400">—</span>}
                     </td>

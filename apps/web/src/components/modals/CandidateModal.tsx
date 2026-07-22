@@ -1,29 +1,25 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Trash2, Download } from 'lucide-react';
-import { interviewsApi } from '@/api/client';
+import { Input } from '@/components/ui/input';
+import { Trash2, Download, Pencil, X, Save, Loader2 } from 'lucide-react';
+import { interviewsApi, getErrorMessage } from '@/api/client';
 import { AnalysisResult } from '../analysis/AnalysisResult';
+import { getAvatarColor, getInitials } from '@/lib/avatar';
+import { formatDate } from '@/lib/format';
+
+function safeFilenamePart(value: string) {
+  return value.trim().replace(/[^\w\d-]+/g, '-').replace(/^-+|-+$/g, '') || 'candidate';
+}
 
 interface CandidateModalProps {
   interviewId: string | null;
   open: boolean;
   onClose: () => void;
-}
-
-const AVATAR_COLORS = [
-  { bg: '#E6F1FB', color: '#185FA5' },
-  { bg: '#EEEDFE', color: '#534AB7' },
-  { bg: '#EAF3DE', color: '#3B6D11' },
-  { bg: '#FAEEDA', color: '#854F0B' },
-  { bg: '#E1F5EE', color: '#0F6E56' },
-];
-
-function getAvatarStyle(name: string) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
 export function CandidateModal({ interviewId, open, onClose }: CandidateModalProps) {
@@ -50,49 +46,52 @@ export function CandidateModal({ interviewId, open, onClose }: CandidateModalPro
     }
   };
 
-  const handleSavePDF = () => {
-    if (!data) return;
-    const analysis = data.analysis as any;
-    const content = `
-INTERVIEW ANALYSIS REPORT
-==========================
-Candidate: ${data.candidateName ?? '—'}
-Role: ${data.role} ${data.level}
-Client: ${data.clientName ?? '—'}
-Stage: ${data.stage}
-Date: ${new Date(data.analysisDate ?? data.createdAt).toLocaleDateString()}
+  const [editingNames, setEditingNames] = useState(false);
+  const [candidateNameDraft, setCandidateNameDraft] = useState('');
+  const [managerNameDraft, setManagerNameDraft] = useState('');
 
-RECOMMENDATION: ${analysis?.recommendation ?? analysis?.stageResult ?? '—'}
-SCORE: ${analysis?.score ?? '—'}
+  const updateNamesMutation = useMutation({
+    mutationFn: () =>
+      interviewsApi
+        .update(interviewId!, { candidateName: candidateNameDraft, managerName: managerNameDraft })
+        .then(r => r.data),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['interview', interviewId], updated);
+      queryClient.invalidateQueries({ queryKey: ['interviews'] });
+      queryClient.invalidateQueries({ queryKey: ['candidates'] });
+      setEditingNames(false);
+    },
+  });
 
-OVERALL ASSESSMENT:
-${analysis?.overallAssessment ?? analysis?.overallImpression ?? '—'}
+  const startEditingNames = () => {
+    setCandidateNameDraft(data?.candidateName ?? '');
+    setManagerNameDraft(data?.managerName ?? '');
+    updateNamesMutation.reset();
+    setEditingNames(true);
+  };
 
-STRENGTHS:
-${(analysis?.strengths ?? []).map((s: string) => `• ${s}`).join('\n')}
+  const [pdfDownloading, setPdfDownloading] = useState(false);
+  const [pdfError, setPdfError] = useState<string | null>(null);
 
-WEAKNESSES:
-${(analysis?.weaknesses ?? []).map((w: string) => `• ${w}`).join('\n')}
-
-REASONING:
-${analysis?.reasoning ?? '—'}
-
-${analysis?.decisionBreakers?.length > 0 ? `DECISION BREAKERS:\n${analysis.decisionBreakers.map((d: string) => `• ${d}`).join('\n')}` : ''}
-    `.trim();
-
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Analysis — ${data.candidateName ?? 'Candidate'}</title>
-          <style>body { font-family: monospace; white-space: pre-wrap; padding: 40px; font-size: 13px; line-height: 1.6; }</style>
-        </head>
-        <body>${content}</body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.print();
+  const handleSavePDF = async () => {
+    if (!interviewId || !data) return;
+    setPdfError(null);
+    setPdfDownloading(true);
+    try {
+      const { data: blob } = await interviewsApi.downloadPdf(interviewId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${safeFilenamePart(data.candidateName ?? 'candidate')}-${data.stage}-analysis.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setPdfError(getErrorMessage(err));
+    } finally {
+      setPdfDownloading(false);
+    }
   };
 
   const tabs = data ? [
@@ -103,20 +102,17 @@ ${analysis?.decisionBreakers?.length > 0 ? `DECISION BREAKERS:\n${analysis.decis
     ...(data.questions?.length ? [{ value: 'questions', label: 'Questions' }] : []),
   ] : [];
 
-  const avatarStyle = data?.candidateName ? getAvatarStyle(data.candidateName) : null;
-  const initials = data?.candidateName
-    ? data.candidateName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
-    : '?';
+  const avatarStyle = data?.candidateName ? getAvatarColor(data.candidateName) : null;
+  const initials = data?.candidateName ? getInitials(data.candidateName) : '?';
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="w-[95vw] max-w-3xl max-h-[90vh] overflow-y-auto scrollbar-thin p-0 [&>button]:hidden">
 
         {/* Header */}
-        <div
-          className="flex items-center justify-between px-5 py-4 flex-shrink-0"
-        >
-          <div className="flex items-center gap-3">
+        <div className="px-5 py-4 flex-shrink-0 space-y-2">
+          <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             {isLoading ? (
               <Skeleton className="w-9 h-9 rounded-full flex-shrink-0" />
             ) : avatarStyle ? (
@@ -127,41 +123,73 @@ ${analysis?.decisionBreakers?.length > 0 ? `DECISION BREAKERS:\n${analysis.decis
                 {initials}
               </div>
             ) : null}
-            <div>
-              <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-                {isLoading ? '...' : (data?.candidateName ?? 'Candidate')}
-              </h2>
-              {data && (
-                <p className="text-xs mt-0.5" style={{ color: 'var(--color-text-tertiary)' }}>
-                  {data.role} {data.level} · {data.clientName ?? '—'} · {new Date(data.analysisDate ?? data.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
-                </p>
+            <div className="min-w-0 flex-1">
+              {editingNames ? (
+                <Input
+                  value={candidateNameDraft}
+                  onChange={e => setCandidateNameDraft(e.target.value)}
+                  placeholder="Candidate name"
+                  autoFocus
+                  className="h-7 text-sm font-semibold"
+                />
+              ) : (
+                <h2 className="text-sm font-semibold truncate" style={{ color: 'var(--color-text-primary)' }}>
+                  {isLoading ? '...' : (data?.candidateName ?? 'Candidate')}
+                </h2>
               )}
             </div>
           </div>
 
           <div className="flex items-center gap-2 flex-shrink-0">
-            {data && (
+            {data && !editingNames && (
               <>
                 <button
-                  onClick={handleSavePDF}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors"
-                  style={{ border: '0.5px solid var(--color-border-tertiary)', color: 'var(--color-text-secondary)', background: 'var(--color-background-primary)' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-background-secondary)')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'var(--color-background-primary)')}
+                  onClick={startEditingNames}
+                  title="Edit names"
+                  className="flex items-center justify-center gap-1.5 p-2 sm:px-3 sm:py-1.5 text-xs rounded-md border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 transition-colors"
                 >
-                  <Download size={13} />
-                  Save as PDF
+                  <Pencil size={14} />
+                  <span className="hidden sm:inline">Edit</span>
+                </button>
+                <button
+                  onClick={handleSavePDF}
+                  disabled={pdfDownloading}
+                  title="Save as PDF"
+                  className="flex items-center justify-center gap-1.5 p-2 sm:px-3 sm:py-1.5 text-xs rounded-md text-white bg-[#5067F4] hover:bg-[#3d52d9] transition-colors"
+                >
+                  {pdfDownloading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                  <span className="hidden sm:inline">{pdfDownloading ? 'Generating...' : 'Save as PDF'}</span>
                 </button>
                 <button
                   onClick={handleDelete}
                   disabled={deleteMutation.isPending}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md transition-colors"
-                  style={{ border: '0.5px solid #FECACA', color: '#DC2626', background: 'var(--color-background-primary)' }}
-                  onMouseEnter={e => (e.currentTarget.style.background = '#FEF2F2')}
-                  onMouseLeave={e => (e.currentTarget.style.background = 'var(--color-background-primary)')}
+                  title="Delete"
+                  className="flex items-center justify-center gap-1.5 p-2 sm:px-3 sm:py-1.5 text-xs rounded-md border border-red-200 text-red-600 bg-white hover:bg-red-50 transition-colors"
                 >
-                  <Trash2 size={13} />
-                  {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+                  <Trash2 size={14} />
+                  <span className="hidden sm:inline">{deleteMutation.isPending ? 'Deleting...' : 'Delete'}</span>
+                </button>
+              </>
+            )}
+            {editingNames && (
+              <>
+                <button
+                  onClick={() => setEditingNames(false)}
+                  disabled={updateNamesMutation.isPending}
+                  title="Cancel"
+                  className="flex items-center justify-center gap-1.5 p-2 sm:px-3 sm:py-1.5 text-xs rounded-md border border-slate-200 text-slate-600 bg-white hover:bg-slate-50 transition-colors"
+                >
+                  <X size={14} />
+                  <span className="hidden sm:inline">Cancel</span>
+                </button>
+                <button
+                  onClick={() => updateNamesMutation.mutate()}
+                  disabled={updateNamesMutation.isPending}
+                  title="Save"
+                  className="flex items-center justify-center gap-1.5 p-2 sm:px-3 sm:py-1.5 text-xs rounded-md text-white bg-[#5067F4] hover:bg-[#3d52d9] transition-colors"
+                >
+                  <Save size={14} />
+                  <span className="hidden sm:inline">{updateNamesMutation.isPending ? 'Saving...' : 'Save'}</span>
                 </button>
               </>
             )}
@@ -175,6 +203,28 @@ ${analysis?.decisionBreakers?.length > 0 ? `DECISION BREAKERS:\n${analysis.decis
               ✕
             </button>
           </div>
+          </div>
+          {editingNames ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs flex-shrink-0" style={{ color: 'var(--color-text-tertiary)' }}>Manager:</span>
+              <Input
+                value={managerNameDraft}
+                onChange={e => setManagerNameDraft(e.target.value)}
+                placeholder="Manager name"
+                className="h-7 text-xs max-w-[220px]"
+              />
+            </div>
+          ) : data && (
+            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
+              {data.role} {data.level} · {data.clientName ?? '—'} · {formatDate(data.analysisDate ?? data.createdAt)} · Manager: {data.managerName ?? '—'}
+            </p>
+          )}
+          {updateNamesMutation.isError && (
+            <p className="text-xs text-red-500">{getErrorMessage(updateNamesMutation.error)}</p>
+          )}
+          {pdfError && (
+            <p className="text-xs text-red-500">{pdfError}</p>
+          )}
         </div>
 
         {isLoading && <Skeleton className="h-64 w-full m-5" />}
@@ -189,7 +239,7 @@ ${analysis?.decisionBreakers?.length > 0 ? `DECISION BREAKERS:\n${analysis.decis
                 <button
                   key={tab.value}
                   onClick={() => setActiveTab(tab.value)}
-                  className="flex-1 py-2.5 text-sm font-semibold transition-colors whitespace-nowrap text-center"
+                  className="flex-1 py-2.5 px-1 text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap text-center"
                   style={{
                     color: activeTab === tab.value ? 'hsl(var(--primary))' : 'var(--color-text-tertiary)',
                   }}
@@ -225,12 +275,14 @@ ${analysis?.decisionBreakers?.length > 0 ? `DECISION BREAKERS:\n${analysis.decis
               )}
 
               {activeTab === 'broker' && data.brokerRequest && (
-                <pre
-                  className="text-sm whitespace-pre-wrap p-4 rounded-lg max-h-96 overflow-y-auto scrollbar-thin"
+                <article
+                  className="prose prose-sm max-w-none prose-a:text-[#5067F4] p-4 rounded-lg max-h-96 overflow-y-auto scrollbar-thin"
                   style={{ background: 'var(--color-background-secondary)', color: 'var(--color-text-secondary)' }}
                 >
-                  {data.brokerRequest}
-                </pre>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                    {data.brokerRequest}
+                  </ReactMarkdown>
+                </article>
               )}
 
               {activeTab === 'questions' && data.questions && data.questions.length > 0 && (() => {

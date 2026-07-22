@@ -4,17 +4,7 @@ config({ path: resolve(__dirname, '../../../../.env') });
 
 import { prisma } from '../db/prisma';
 import { parseIssue } from '../services/linear.parser';
-
-const STATUS_MAP: Record<string, string> = {
-  "Broker's Call": 'manager_call',
-  'Tech Call': 'technical',
-  'Hired': 'hired',
-  'Lost': 'rejected',
-  'On Hold': 'on_hold',
-  'Backlog': 'new',
-  'Todo': 'new',
-  'In Progress': 'in_progress',
-};
+import { mapLinearStateToStatus } from '@shared/schemas';
 
 async function main() {
   console.log('🚀 Starting migration of historical Linear issues...');
@@ -55,7 +45,7 @@ async function main() {
       const parsed = await parseIssue(issueId);
 
       // Определяем статус на основе текущего статуса в Linear
-      const status = STATUS_MAP[parsed.status] ?? 'in_progress';
+      const status = mapLinearStateToStatus(parsed.status) ?? 'in_progress';
 
       await prisma.incomingRequest.upsert({
         where: { linearIssueId: issueId },

@@ -6,25 +6,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CandidateModal } from '@/components/modals/CandidateModal';
-import { ArrowLeft, Users, CheckCircle, XCircle, Target, FileText, CalendarDays, Phone, MessageSquare, Settings } from 'lucide-react';
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-GB', {
-    day: '2-digit', month: 'short', year: 'numeric',
-  });
-}
-
-const STAGE_LABEL: Record<string, string> = {
-  manager_call: 'Manager Call',
-  technical: 'Technical',
-  final_result: 'Final Result',
-};
-
-const PREP_TYPE_CONFIG: Record<string, { label: string; icon: typeof Phone; bg: string; color: string; border: string }> = {
-  call: { label: 'Call', icon: Phone, bg: '#FEF9EE', color: '#854F0B', border: '#F5E6C8' },
-  message: { label: 'Message', icon: MessageSquare, bg: '#FEF9EE', color: '#854F0B', border: '#F5E6C8' },
-  call_setup: { label: 'Call + Setup', icon: Settings, bg: '#EEF0FE', color: '#534AB7', border: '#D9DEFB' },
-};
+import { ArrowLeft, Users, CheckCircle, XCircle, Target, FileText, CalendarDays } from 'lucide-react';
+import { CardCarousel } from '@/components/ui/CardCarousel';
+import { formatDate } from '@/lib/format';
+import { STAGE_LABEL, PREP_TYPE_CONFIG } from '@/lib/badges';
+import { NotFoundState } from '@/components/ui/NotFoundState';
 
 const RESULT_STYLE: Record<string, string> = {
   hire: 'bg-green-100 text-green-800',
@@ -126,18 +112,12 @@ export function CandidateDetailPage() {
   );
 
   if (isError) return (
-    <div className="p-4 md:p-6">
-      <button
-        onClick={() => navigate({ to: '/candidates' })}
-        className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-600 mb-4"
-      >
-        <ArrowLeft size={16} /> Back to candidates
-      </button>
-      <div className="rounded-md border border-dashed p-12 text-center">
-        <p className="text-sm text-slate-500">Candidate not found.</p>
-        <p className="text-xs text-slate-400 mt-1">The name may have changed or been deleted.</p>
-      </div>
-    </div>
+    <NotFoundState
+      backLabel="Back to candidates"
+      onBack={() => navigate({ to: '/candidates' })}
+      title="Candidate not found."
+      subtitle="The name may have changed or been deleted."
+    />
   );
 
   if (!data) return null;
@@ -209,7 +189,7 @@ export function CandidateDetailPage() {
 
       {/* Strengths, Weaknesses & Decision Breakers */}
       {(data.topStrengths?.length > 0 || data.topWeaknesses.length > 0 || data.topDecisionBreakers.length > 0) && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <CardCarousel gridClass="sm:grid-cols-3">
           {data.topStrengths?.length > 0 && (
             <Card>
               <CardHeader className="pb-2">
@@ -258,7 +238,7 @@ export function CandidateDetailPage() {
               </CardContent>
             </Card>
           )}
-        </div>
+        </CardCarousel>
       )}
 
       {/* Interview History */}
@@ -271,10 +251,10 @@ export function CandidateDetailPage() {
             <thead className="bg-[#5067F4]/5 border-b border-[#5067F4]/10">
               <tr>
                 <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[14%]">Date</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[16%]">Stage</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[14%]">Role</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[16%]">Client</th>
-                <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[16%]">Manager</th>
+                <th className="hidden md:table-cell text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[16%]">Stage</th>
+                <th className="hidden md:table-cell text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[14%]">Role</th>
+                <th className="hidden md:table-cell text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[16%]">Client</th>
+                <th className="hidden md:table-cell text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[16%]">Manager</th>
                 <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[14%]">Result</th>
                 <th className="text-left px-3 py-2 text-xs font-medium text-[#5067F4]/70 uppercase tracking-wide w-[10%]">Score</th>
               </tr>
@@ -289,10 +269,10 @@ export function CandidateDetailPage() {
                     className="hover:bg-slate-50 cursor-pointer transition-colors"
                   >
                     <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{formatDate(i.analysisDate ?? i.createdAt)}</td>
-                    <td className="px-3 py-2 text-slate-600">{STAGE_LABEL[i.stage] ?? i.stage}</td>
-                    <td className="px-3 py-2 text-slate-600">{i.role} <span className="text-slate-400">{i.level}</span></td>
-                    <td className="px-3 py-2 text-slate-600 truncate">{i.clientName ?? '—'}</td>
-                    <td className="px-3 py-2 text-slate-600 truncate">{i.managerName ?? '—'}</td>
+                    <td className="hidden md:table-cell px-3 py-2 text-slate-600">{STAGE_LABEL[i.stage] ?? i.stage}</td>
+                    <td className="hidden md:table-cell px-3 py-2 text-slate-600">{i.role} <span className="text-slate-400">{i.level}</span></td>
+                    <td className="hidden md:table-cell px-3 py-2 text-slate-600 truncate">{i.clientName ?? '—'}</td>
+                    <td className="hidden md:table-cell px-3 py-2 text-slate-600 truncate">{i.managerName ?? '—'}</td>
                     <td className="px-3 py-2">
                       {result ? (
                         <Badge className={`${RESULT_STYLE[result] ?? 'bg-slate-100 text-slate-600'} text-xs`}>

@@ -120,7 +120,7 @@ function ProfileSection() {
         }
       >
         <StatusText status={status} />
-        <div className="w-20 h-20 rounded-full bg-[#5067F4] flex items-center justify-center text-white text-2xl font-semibold">
+        <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#5067F4] to-[#8b5cf6] ring-4 ring-[#5067F4]/10 shadow-sm flex items-center justify-center text-white text-2xl font-semibold">
           {initialsOf(avatarSource)}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -274,14 +274,14 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="p-4 md:p-6 overflow-x-hidden">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
         <p className="text-sm text-slate-400 mt-1">Manage your account, security, and workspace preferences.</p>
       </div>
 
       <div className="flex flex-col md:flex-row gap-6 md:gap-8">
-        <nav className="md:w-56 flex-shrink-0 md:sticky md:top-20 self-start flex md:flex-col gap-1">
+        <nav className="w-full md:w-56 flex-shrink-0 md:sticky md:top-20 self-start flex md:flex-col gap-1 overflow-x-auto no-scrollbar rounded-xl bg-slate-100 p-1 md:bg-transparent md:p-0 md:overflow-visible">
           {navItems.map(item => {
             const Icon = item.icon;
             return (
@@ -289,10 +289,10 @@ export function SettingsPage() {
                 key={item.key}
                 onClick={() => goTo(item.key as keyof typeof refs)}
                 className={cn(
-                  'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left',
+                  'flex md:flex-none items-center justify-center md:justify-start gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left whitespace-nowrap flex-shrink-0',
                   active === item.key
-                    ? 'bg-[#5067F4]/10 text-[#5067F4]'
-                    : 'text-slate-600 hover:bg-slate-100'
+                    ? 'bg-white shadow-sm text-[#5067F4] md:bg-[#5067F4]/10 md:shadow-none'
+                    : 'text-slate-600 hover:text-slate-900 md:hover:bg-slate-100'
                 )}
               >
                 <Icon size={16} />
@@ -302,7 +302,7 @@ export function SettingsPage() {
           })}
         </nav>
 
-        <div className="flex-1 flex md:justify-center">
+        <div className="flex-1 min-w-0 flex md:justify-center">
           <div className="w-full max-w-3xl space-y-6">
             <div ref={refs.profile}><ProfileSection /></div>
             <div ref={refs.password}><ChangePasswordSection /></div>

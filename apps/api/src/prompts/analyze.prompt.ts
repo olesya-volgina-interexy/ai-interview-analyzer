@@ -17,6 +17,13 @@ RULES:
     : 'No decision provided — make independent recommendation.'}
 4. Extract ALL interviewer questions into "questions" array. Never empty if questions exist.
 5. Respond in English. Return ONLY valid JSON, no markdown wrapper.
+6. DATA QUALITY: if this transcript (or CV) is fundamentally unusable for a manager-call
+   assessment — e.g. it's clearly a different kind of call, mostly noise/silence with no
+   real conversation, or the CV is for an obviously different person than who's speaking —
+   set "dataQualityIssue": { "source":"transcript|cv", "explanation":"one sentence" } and
+   you may leave the other fields with placeholder/best-effort values. Do NOT flag it just
+   because the call was short or the candidate performed poorly — those are normal outcomes
+   to analyze, not data problems. Otherwise set "dataQualityIssue" to null.
 
 CONTEXT: Stage: Manager Call | Role: ${meta.role} | Level: ${meta.level}
 Client: ${meta.clientName ?? 'not specified'}
@@ -49,6 +56,21 @@ Domain-agnostic rules:
 - Works for ANY role: SAP, frontend, backend, DevOps, QA, mobile, ML, data, etc.
 - Match by MEANING, not exact phrasing.
 - English only in output. Return ONLY valid JSON, no markdown wrapper.
+
+═══ DATA QUALITY GATE (check this FIRST, before Tasks A-G) ═══
+
+Check whether <transcript> is actually usable as a technical interview. Flag it via
+"dataQualityIssue" ONLY if it is fundamentally NOT analyzable as a technical interview:
+  - it is clearly a different kind of call entirely (sales call, HR onboarding, unrelated meeting)
+  - it is mostly noise/silence/non-speech transcribed as garbage — not a real conversation
+  - it contains no technical Q&A exchange of any kind
+
+Do NOT flag it merely because the interview was short, weak, off-topic in places, or the
+candidate performed poorly — those are normal outcomes to analyze, not data problems.
+When in doubt, leave it null and continue with normal extraction below.
+
+Output: "dataQualityIssue": null, OR
+        "dataQualityIssue": { "type":"not_an_interview|no_technical_content|other", "explanation":"one sentence, plain language" }
 
 ═══ TASK A: PARSE BROKER REQUIREMENTS ═══
 
@@ -269,6 +291,7 @@ because the candidate eventually got their point across.
 ═══ OUTPUT SHAPE ═══
 
 {
+  "dataQualityIssue": null,
   "parsedBrokerRequirements": [
     { "id":"req-1", "skill":"", "priority":"must_have|nice_to_have" }
   ],
@@ -393,6 +416,7 @@ Return ONLY valid JSON, no markdown wrapper.
 
 export const MANAGER_CALL_JSON_SCHEMA = `{
   "stage": "manager_call",
+  "dataQualityIssue": null,
   "overallImpression": "2-3 sentences",
   "softSkills": { "communication":"", "motivation":"", "cultureFit":"", "clarityOfThought":"" },
   "strengths": [], "weaknesses": [], "risks": [],
@@ -401,8 +425,6 @@ export const MANAGER_CALL_JSON_SCHEMA = `{
   "reasoning": "", "decisionBreakers": [], "recommendation": "",
   "questions": [{ "question":"", "topic":"", "candidateHandled":"well|partial|poor|skipped" }]
 }`;
-
-export const TECHNICAL_JSON_SCHEMA = `defined in Step 2 prompt output section`;
 
 export const FINAL_RESULT_JSON_SCHEMA = `{
   "stage": "final_result",
@@ -427,12 +449,6 @@ export function buildStep1UserMessage(transcript: string, brokerRequest?: string
     ? `<broker_request>\n${brokerRequest.trim()}\n</broker_request>\n\n`
     : '';
   return `${broker}<transcript>\n${transcript}\n</transcript>`;
-}
-
-export function buildStep2UserMessage(
-  extractionJson: string, cvText?: string, brokerRequest?: string, similarCases?: string
-): string {
-  return `${similarCases ? `SIMILAR CASES:\n${similarCases}\n---\n` : ''}<extraction>\n${extractionJson}\n</extraction>\n\n<cv>\n${cvText?.trim() || 'Not provided'}\n</cv>\n\n<broker_request>\n${brokerRequest?.trim() || 'Not provided'}\n</broker_request>`;
 }
 
 export function buildUserMessage(

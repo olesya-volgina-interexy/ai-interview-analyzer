@@ -1,8 +1,7 @@
 import { Prisma, type Interview } from '@prisma/client';
 import { prisma } from '../db/prisma';
 import type { InterviewMeta, CandidateAnalysis } from '@shared/schemas';
-import { redis } from '../db/redis';
-import { describeError } from '../utils/errorLogger';
+import { invalidateStatsCache } from '../services/statsCache';
 import { stripNullBytes, stripNullBytesDeep } from '../utils/textSanitize';
 
 // Выводим итоговое решение (hired/rejected) для колонки Interview.decision.
@@ -68,12 +67,7 @@ export async function createInterview(data: {
     });
 
     // Инвалидируем кеш статистики
-    try {
-      const keys = await redis.keys('stats:overview:*');
-      if (keys.length > 0) await redis.del(...keys);
-    } catch (err) {
-      console.warn('[stage:db] stats cache invalidation failed', describeError(err));
-    }
+    await invalidateStatsCache();
 
     return { interview, isDuplicate: false };
   } catch (err) {
@@ -215,24 +209,6 @@ export async function getInterviewsByLinearIssueId(
   });
 }
 
-// Проверить существует ли анализ для кандидата
-export async function hasExistingAnalysis(
-  linearIssueId: string,
-  parentCommentId: string,
-  stage: string
-): Promise<boolean> {
-  const existing = await prisma.interview.findFirst({
-    where: {
-      linearIssueId,
-      parentCommentId,
-      stage,
-    },
-    select: { id: true },
-  });
-
-  return existing !== null;
-}
-
 /**
  * Получает все существующие анализы для тикета (batch проверка)
  * @returns Map: parentCommentId -> Set of stages
@@ -334,12 +310,64 @@ export async function updateIncomingRequestStatus(
   });
 }
 
-// CV отправлен клиенту: считаем количество, но НЕ пишем синтетический cv_sent
-// в статус/историю — тикет физически остаётся в своей колонке Linear, поэтому
-// в Time on Stages должны фигурировать только реальные статусы Linear.
-export async function recordCvSent(linearIssueId: string) {
-  return prisma.incomingRequest.updateMany({
-    where: { linearIssueId },
-    data: { cvSentCount: { increment: 1 } },
+// Дополняет локальную историю статусов версией из Linear — СЛИЯНИЕМ, а не
+// заменой. Локальное зеркало пишется по вебхукам и может отставать/терять
+// переходы (пропущенный вебхук, гонка, ручная правка статуса); эта функция
+// должна закрывать такие пробелы. Но Linear API `issue.history` устраняется
+// не мгновенно — если реконсиляция срабатывает сразу после вебхука (см.
+// reconcileHistoryThrottled в webhooks/linear.ts), запрос к Linear может
+// вернуть ИСТОРИЮ БЕЗ только что случившегося перехода, который сам вебхук
+// уже корректно записал локально. Раньше эта функция полностью УДАЛЯЛА
+// локальные строки и заменяла их ответом Linear — из-за этой гонки свежий,
+// верный переход стирался неполным снимком. Поэтому здесь СЛИЯНИЕ: локальные
+// строки, которых нет в ответе Linear, никогда не отбрасываются — Linear
+// может только ДОБАВИТЬ то, чего не хватает локально, никогда не удалить то,
+// что уже записано. `history` должна прийти отсортированной от старых к
+// новым (см. getIssueStatusHistory в linear.service.ts).
+export async function reconcileStatusHistory(
+  linearIssueId: string,
+  history: Array<{ status: string; enteredAt: string }>
+) {
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.incomingRequest.findUnique({
+      where: { linearIssueId },
+      select: { id: true },
+    });
+    if (!existing) return;
+
+    const localRows = await tx.incomingRequestStatusHistory.findMany({
+      where: { incomingRequestId: existing.id },
+      select: { status: true, enteredAt: true },
+    });
+
+    const merged = [
+      ...localRows.map(r => ({ status: r.status, enteredAt: r.enteredAt.getTime() })),
+      ...history.map(r => ({ status: r.status, enteredAt: new Date(r.enteredAt).getTime() })),
+    ].sort((a, b) => a.enteredAt - b.enteredAt);
+
+    if (merged.length === 0) return;
+
+    // Дедуп подряд идущих одинаковых статусов (из двух источников, локального
+    // и Linear, могло прийти по записи на один и тот же реальный переход) —
+    // оставляем самую раннюю известную отметку времени для этого визита.
+    const deduped = merged.filter((entry, i) => i === 0 || entry.status !== merged[i - 1].status);
+
+    await tx.incomingRequestStatusHistory.deleteMany({
+      where: { incomingRequestId: existing.id },
+    });
+
+    await tx.incomingRequestStatusHistory.createMany({
+      data: deduped.map(entry => ({
+        incomingRequestId: existing.id,
+        status: entry.status,
+        enteredAt: new Date(entry.enteredAt),
+      })),
+    });
+
+    const latestStatus = deduped[deduped.length - 1].status;
+    await tx.incomingRequest.update({
+      where: { id: existing.id },
+      data: { status: latestStatus },
+    });
   });
 }

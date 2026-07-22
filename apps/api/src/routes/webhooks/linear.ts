@@ -10,36 +10,31 @@ import {
   type CandidateThread,
 } from '../../services/linear.parser';
 import { extractCVText, detectLevelFromCV, extractNameFromCV, extractNameFromTranscript  } from '../../services/cv.service';
+import { upsertPipelineCandidateFromCv } from '../../services/pipelineCandidate.service';
 import { analyzeQueue } from '../../workers/analyze.worker';
 import { cvConsistencyQueue } from '../../workers/cvConsistency.worker';
 import { buildWebhookJobId } from '../../utils/dedup';
-import { getExistingAnalysesForIssue, upsertIncomingRequest, updateIncomingRequestStatus } from '../../db/db.service';
+import { getExistingAnalysesForIssue, upsertIncomingRequest, updateIncomingRequestStatus, reconcileStatusHistory } from '../../db/db.service';
 import { prisma } from '../../db/prisma';
-import { redis } from '../../db/redis';
+import { invalidateStatsCache } from '../../services/statsCache';
 import { fetchTranscript } from '../../services/bluedot.service';
-import { parseIssueTitle, getComment, splitVacancies } from '../../services/linear.service';
+import { parseIssueTitle, getComment, splitVacancies, getIssueStatusHistory } from '../../services/linear.service';
 import { matchVacancyToCandidate } from '../../services/vacancyMatcher.service';
+import { resolveStage } from '../../services/stageResolver';
+import { postAnalysisFailureNoticeOnce } from '../../services/linear.poster';
+import { assessContentQuality } from '../../utils/contentQuality';
 
 
-const STATUS_TRIAGE = 'Triage';
-const STATUS_IN_PROGRESS = 'In Progress';
-const STATUS_CLIENT_REVIEW = 'Client Review';
 const STATUS_BROKERS_CALL = "Broker's Call";
 const STATUS_TECH_CALL = 'Tech Call';
 const STATUS_HIRED = 'Hired';
 const STATUS_LOST = 'Lost';
-const STATUS_ON_HOLD = 'On Hold';
 
-const LINEAR_STATUS_MAP: Record<string, string> = {
-  [STATUS_TRIAGE]: 'triage',
-  [STATUS_IN_PROGRESS]: 'in_progress',
-  [STATUS_CLIENT_REVIEW]: 'client_review',
-  [STATUS_BROKERS_CALL]: 'manager_call',
-  [STATUS_TECH_CALL]: 'technical',
-  [STATUS_HIRED]: 'hired',
-  [STATUS_LOST]: 'lost',
-  [STATUS_ON_HOLD]: 'on_hold',
-};
+// Троттлинг реконсиляции истории статусов из Linear (см. reconcileHistoryThrottled
+// ниже) — не даёт двум почти одновременным вебхукам по одному тикету запустить
+// реконсиляцию дважды подряд.
+const lastReconciledAt = new Map<string, number>();
+const RECONCILE_THROTTLE_MS = 60_000;
 
 export async function linearWebhookRoutes(fastify: FastifyInstance) {
 
@@ -131,63 +126,42 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
               cvSentCount: { increment: 1 },
             },
           }).catch(err => fastify.log.warn({ err }, 'Failed to increment cv count'));
-          {
-            {
-              setImmediate(async () => {
-                try {
-                  const cvText = await extractCVText(cvUrl);
-                  const [candidateName, level] = await Promise.all([
-                    extractNameFromCV(cvText),
-                    detectLevelFromCV(cvText),
-                  ]);
 
-                  const req = await prisma.incomingRequest.findUnique({
-                    where: { linearIssueId: issueId },
-                    select: { role: true, clientName: true },
-                  });
+          // Инвалидируем кэш статистики, чтобы Candidate Pipeline обновился
+          // сразу через SSE, а не только по кнопке "обновить"
+          await invalidateStatsCache();
 
-                  await prisma.pipelineCandidate.upsert({
-                    where: { rootCommentId: data.id },
-                    create: {
-                      linearIssueId: issueId,
-                      rootCommentId: data.id,
-                      candidateName: candidateName ?? undefined,
-                      level: level ?? undefined,
-                      cvUrl,
-                      cvText,
-                      role: req?.role ?? undefined,
-                      clientName: req?.clientName ?? undefined,
-                    },
-                    update: {
-                      cvUrl,
-                      cvText,
-                      candidateName: candidateName ?? undefined,
-                      level: level ?? undefined,
-                    },
-                  });
+          setImmediate(async () => {
+            const req = await prisma.incomingRequest.findUnique({
+              where: { linearIssueId: issueId },
+              select: { role: true, clientName: true },
+            }).catch(() => null);
 
-                  const cvAlertsOn = (process.env.CV_CONSISTENCY_ALERTS ?? 'off').toLowerCase() === 'on';
-                  fastify.log.info({ rootCommentId: data.id, cvAlertsOn }, '[cv-consistency] CV ingested, enqueue?');
-                  if (cvAlertsOn) {
-                    await cvConsistencyQueue
-                      .add(
-                        'check',
-                        { rootCommentId: data.id },
-                        {
-                          jobId: `cv-consistency-${data.id}`,
-                          removeOnComplete: { age: 3600 },
-                          removeOnFail: { age: 3600 },
-                        },
-                      )
-                      .then(() => fastify.log.info({ rootCommentId: data.id }, '[cv-consistency] enqueued'))
-                      .catch((err) => fastify.log.warn({ err }, 'Failed to enqueue cv-consistency'));
-                  }
-                } catch (err) {
-                  fastify.log.warn({ err }, 'Failed to create PipelineCandidate');
-                }
-              });
+            const { enriched } = await upsertPipelineCandidateFromCv({
+              issueId,
+              rootCommentId: data.id,
+              cvUrl,
+              role: req?.role,
+              clientName: req?.clientName,
+            });
+
+            const cvAlertsOn = (process.env.CV_CONSISTENCY_ALERTS ?? 'off').toLowerCase() === 'on';
+            fastify.log.info({ rootCommentId: data.id, enriched, cvAlertsOn }, '[cv-consistency] CV ingested, enqueue?');
+            if (enriched && cvAlertsOn) {
+              await cvConsistencyQueue
+                .add(
+                  'check',
+                  { rootCommentId: data.id },
+                  {
+                    jobId: `cv-consistency-${data.id}`,
+                    removeOnComplete: { age: 3600 },
+                    removeOnFail: { age: 3600 },
+                  },
+                )
+                .then(() => fastify.log.info({ rootCommentId: data.id }, '[cv-consistency] enqueued'))
+                .catch((err) => fastify.log.warn({ err }, 'Failed to enqueue cv-consistency'));
             }
-          }
+          });
         }
 
         // Re-evaluate all stages whenever a stage-marker comment lands — this
@@ -218,8 +192,36 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
             }).catch(err => fastify.log.warn({ err }, 'Failed to save external feedback'));
 
             // Инвалидируем кэш статистики
-            const keys = await redis.keys('stats:overview:*').catch(() => [] as string[]);
-            if (keys.length > 0) await redis.del(...keys).catch(() => {});
+            await invalidateStatsCache();
+          }
+        }
+
+        return reply.status(200).send({ ok: true });
+      }
+
+      // ── Триггер на редактирование комментария ───────────────────────────
+      // Нужен, чтобы правка битой ссылки на транскрипт/CV (в том же
+      // комментарии, а не новым) реально перезапускала анализ — иначе
+      // пользователь чинит ссылку, а система об этом не узнаёт. Сознательно
+      // не дублируем CV-detection/increment-логику из create-хэндлера выше
+      // (она бы задвоила счётчики при каждой правке) — URL транскрипта/CV
+      // и так вычитываются заново из Linear при каждом evaluateAndTriggerStages.
+      if (type === 'Comment' && action === 'update') {
+        const commentBody = data.body ?? '';
+        const issueId = data.issue?.id;
+        fastify.log.info({ commentData: JSON.stringify(data, null, 2) }, 'RAW COMMENT UPDATE PAYLOAD');
+
+        if (issueId) {
+          const hasStageMarker =
+            commentBody.includes('#feedback_manager_call') ||
+            commentBody.includes('#manager_call_transcript') ||
+            commentBody.includes('#technical_call_transcript') ||
+            commentBody.includes('#hired') ||
+            commentBody.includes('#lost');
+
+          if (hasStageMarker) {
+            fastify.log.info(`Linear: comment edited in issue ${issueId} — re-evaluating stages`);
+            await evaluateAndTriggerStages(issueId, fastify);
           }
         }
 
@@ -227,9 +229,7 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
       }
 
       if (type === 'Issue' && action === 'create') {
-        const initialStatus = data.state?.name
-          ? (LINEAR_STATUS_MAP[data.state.name] ?? 'new')
-          : 'new';
+        const initialStatus = resolveStage(data.state, fastify.log) ?? 'new';
 
         await upsertIncomingRequest({
           linearIssueId: data.id,
@@ -238,8 +238,7 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
           status: initialStatus,
         }).catch(err => fastify.log.warn({ err }, 'Failed to create IncomingRequest'));
 
-        const keys = await redis.keys('stats:overview:*').catch(() => [] as string[]);
-        if (keys.length > 0) await redis.del(...keys).catch(() => {});
+        await invalidateStatsCache();
       }
 
       // ── Триггер на смену заголовка Issue (синхронизация clientName) ─────
@@ -274,8 +273,7 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
             `Linear: issue ${issueId} title changed → clientName="${newClientName}" (${requestUpdate.count} requests, ${interviewUpdate.count} interviews updated)`
           );
 
-          const keys = await redis.keys('stats:overview:*').catch(() => [] as string[]);
-          if (keys.length > 0) await redis.del(...keys).catch(() => {});
+          await invalidateStatsCache();
         } else {
           fastify.log.info(
             `Linear: issue ${issueId} title changed to "${newTitle}" but no client extracted — skip`
@@ -291,11 +289,23 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
         fastify.log.info(`Linear: issue ${issueId} → "${newStatus}"`);
 
         // Синхронизируем статус IncomingRequest (и пишем строку истории с
-        // реальным временем перехода из Linear, а не моментом обработки вебхука)
-        if (LINEAR_STATUS_MAP[newStatus]) {
+        // реальным временем перехода из Linear, а не моментом обработки вебхука).
+        // Резолвим по стабильному id стейта (resolveStage), а не по имени —
+        // переименование статуса в Linear не должно ронять историю (см.
+        // stageResolver.ts и docs/fix-time-on-stages-plan.md).
+        const mappedStatus = resolveStage(data.state, fastify.log);
+        if (mappedStatus) {
           const changedAt = data.updatedAt ? new Date(data.updatedAt) : undefined;
-          await updateIncomingRequestStatus(issueId, LINEAR_STATUS_MAP[newStatus], changedAt);
+          await updateIncomingRequestStatus(issueId, mappedStatus, changedAt);
+          await invalidateStatsCache();
         }
+
+        // Реконсилируем локальную историю с Linear в фоне (не блокируя ответ
+        // на вебхук) — самолечение на случай пропущенных/рассинхронённых
+        // переходов, которые ломают time-on-stage статистику (см.
+        // docs/fix-time-on-stages-plan.md, RC-3). Троттлится, чтобы не бить
+        // Linear API повторно при всплеске вебхуков по одному тикету.
+        reconcileHistoryThrottled(issueId, fastify);
 
         // Re-evaluate all stages on any analysis-relevant status change —
         // this catches comments that arrived before the status was set
@@ -387,6 +397,25 @@ async function evaluateAndTriggerStages(
   await Promise.all(jobs);
 }
 
+// Реконсилирует локальную историю статусов тикета с Linear (fire-and-forget,
+// вызывающий код не ждёт и не падает при ошибке). Троттлится через
+// lastReconciledAt, чтобы всплеск вебхуков по одному тикету (например,
+// смена статуса + правка заголовка почти одновременно) не бил Linear API
+// повторно на каждый вебхук.
+async function reconcileHistoryThrottled(issueId: string, fastify: FastifyInstance) {
+  const last = lastReconciledAt.get(issueId) ?? 0;
+  const now = Date.now();
+  if (now - last < RECONCILE_THROTTLE_MS) return;
+  lastReconciledAt.set(issueId, now);
+
+  try {
+    const history = await getIssueStatusHistory(issueId, fastify.log);
+    await reconcileStatusHistory(issueId, history);
+  } catch (err) {
+    fastify.log.warn({ err, issueId }, 'Failed to reconcile status history from Linear');
+  }
+}
+
 // Если в тикете несколько вакансий — выбираем ту, на которую кандидат идёт,
 // по его CV и транскрипту. Возвращаем урезанный brokerRequest и название
 // выбранной вакансии (для пометки в Linear-комментарии).
@@ -451,6 +480,86 @@ async function resolveEffectiveBrokerRequest(
   }
 }
 
+// CV — вспомогательные данные: если ссылка битая/формат не поддержан,
+// сообщаем в Linear, но НЕ блокируем анализ — продолжаем с пустым cvText.
+async function extractCvOrNotify(
+  cvUrl: string | null,
+  issueId: string,
+  rootCommentId: string,
+  stageLabel: string,
+  fastify: FastifyInstance,
+): Promise<string> {
+  if (!cvUrl) return '';
+  try {
+    const text = await extractCVText(cvUrl);
+    const issue = assessContentQuality(text, 'cv');
+    if (issue) {
+      fastify.log.warn({ issue }, `CV content looks wrong: ${cvUrl}`);
+      await postAnalysisFailureNoticeOnce(issueId, rootCommentId, {
+        stageLabel,
+        failureStage: 'cv',
+        detail: issue,
+      });
+      return '';
+    }
+    return text;
+  } catch (err) {
+    fastify.log.warn({ err }, `Failed to extract CV text: ${cvUrl}`);
+    await postAnalysisFailureNoticeOnce(issueId, rootCommentId, {
+      stageLabel,
+      failureStage: 'cv',
+      detail: cvUrl,
+    });
+    return '';
+  }
+}
+
+// Транскрипт — основной вход анализа. Раньше на ошибке фетча сюда
+// подставлялась заглушка "[Transcript unavailable: ...]" и анализ всё равно
+// запускался на этом мусоре, без единого сигнала пользователю. Теперь —
+// уведомляем и возвращаем null, чтобы вызывающая сторона пропустила enqueue.
+async function fetchTranscriptOrNotify(
+  url: string | null,
+  issueId: string,
+  rootCommentId: string,
+  stageLabel: string,
+  fastify: FastifyInstance,
+): Promise<string | null> {
+  if (!url) return '';
+  try {
+    const text = await fetchTranscript(url);
+    const issue = assessContentQuality(text, 'transcript');
+    if (issue) {
+      fastify.log.warn({ issue }, `Transcript content looks wrong: ${url}`);
+      await postAnalysisFailureNoticeOnce(issueId, rootCommentId, {
+        stageLabel,
+        failureStage: 'transcript',
+        detail: issue,
+      });
+      return null;
+    }
+    return text;
+  } catch (err) {
+    fastify.log.warn({ err }, `Failed to fetch transcript: ${url}`);
+    await postAnalysisFailureNoticeOnce(issueId, rootCommentId, {
+      stageLabel,
+      failureStage: 'transcript',
+      detail: url,
+    });
+    return null;
+  }
+}
+
+// BullMQ дедупит по стабильному jobId — упавшая job с тем же id молча
+// блокирует любой повторный .add() до истечения removeOnFail. Чтобы правка
+// битой ссылки реально ретраилась, снимаем упавшую job перед повторной
+// постановкой (тот же паттерн, что и в routes/analyze.ts).
+async function reclaimStaleFailedJob(jobId: string): Promise<void> {
+  const existing = await analyzeQueue.getJob(jobId);
+  if (!existing) return;
+  if ((await existing.getState()) === 'failed') await existing.remove();
+}
+
 async function triggerManagerCall(
   issueId: string,
   parsed: any,
@@ -458,21 +567,27 @@ async function triggerManagerCall(
   fastify: FastifyInstance
 ) {
   try {
-    const cvText = candidate.cvUrl ? await extractCVText(candidate.cvUrl) : '';
-
-    // Реальный фетч транскрипции
-    let transcript = '';
-    if (candidate.managerCallTranscriptUrl) {
-      try {
-        transcript = await fetchTranscript(candidate.managerCallTranscriptUrl);
-      } catch (err) {
-        fastify.log.warn(
-          { err },
-          `Failed to fetch manager call transcript: ${candidate.managerCallTranscriptUrl}`
-        );
-        transcript = `[Transcript unavailable: ${candidate.managerCallTranscriptUrl}]`;
-      }
+    const feedbackIssue = assessContentQuality(candidate.managerFeedback ?? '', 'feedback');
+    if (feedbackIssue) {
+      fastify.log.warn({ feedbackIssue }, `Manager feedback insufficient for candidate ${candidate.rootCommentId}`);
+      await postAnalysisFailureNoticeOnce(issueId, candidate.rootCommentId, {
+        stageLabel: 'Manager Call',
+        failureStage: 'feedback',
+        detail: feedbackIssue,
+      });
+      return;
     }
+
+    const cvText = await extractCvOrNotify(candidate.cvUrl, issueId, candidate.rootCommentId, 'Manager Call', fastify);
+
+    const transcript = await fetchTranscriptOrNotify(
+      candidate.managerCallTranscriptUrl,
+      issueId,
+      candidate.rootCommentId,
+      'Manager Call',
+      fastify,
+    );
+    if (transcript === null) return;
 
     const [level, nameFromCV] = await Promise.all([
       detectLevelFromCV(cvText),
@@ -491,6 +606,9 @@ async function triggerManagerCall(
       resolvedBrokerRequest,
       parsed.brokerRequestSupplement,
     );
+
+    const jobId = buildWebhookJobId(issueId, candidate.rootCommentId, 'manager_call');
+    await reclaimStaleFailedJob(jobId);
 
     await analyzeQueue.add(
       'analyze',
@@ -515,7 +633,7 @@ async function triggerManagerCall(
         },
       },
       {
-        jobId: buildWebhookJobId(issueId, candidate.rootCommentId, 'manager_call'),
+        jobId,
         removeOnComplete: { age: 3600 },
         removeOnFail: { age: 3600 },
       },
@@ -534,21 +652,16 @@ async function triggerTechCall(
   fastify: FastifyInstance
 ) {
   try {
-    const cvText = candidate.cvUrl ? await extractCVText(candidate.cvUrl) : '';
+    const cvText = await extractCvOrNotify(candidate.cvUrl, issueId, candidate.rootCommentId, 'Technical Call', fastify);
 
-    // Реальный фетч транскрипции
-    let transcript = '';
-    if (candidate.technicalCallTranscriptUrl) {
-      try {
-        transcript = await fetchTranscript(candidate.technicalCallTranscriptUrl);
-      } catch (err) {
-        fastify.log.warn(
-          { err },
-          `Failed to fetch tech call transcript: ${candidate.technicalCallTranscriptUrl}`
-        );
-        transcript = `[Transcript unavailable: ${candidate.technicalCallTranscriptUrl}]`;
-      }
-    }
+    const transcript = await fetchTranscriptOrNotify(
+      candidate.technicalCallTranscriptUrl,
+      issueId,
+      candidate.rootCommentId,
+      'Technical Call',
+      fastify,
+    );
+    if (transcript === null) return;
 
     const [level, nameFromCV] = await Promise.all([
       detectLevelFromCV(cvText),
@@ -567,6 +680,9 @@ async function triggerTechCall(
       resolvedBrokerRequest,
       parsed.brokerRequestSupplement,
     );
+
+    const jobId = buildWebhookJobId(issueId, candidate.rootCommentId, 'technical');
+    await reclaimStaleFailedJob(jobId);
 
     await analyzeQueue.add(
       'analyze',
@@ -590,7 +706,7 @@ async function triggerTechCall(
         },
       },
       {
-        jobId: buildWebhookJobId(issueId, candidate.rootCommentId, 'technical'),
+        jobId,
         removeOnComplete: { age: 3600 },
         removeOnFail: { age: 3600 },
       },
@@ -610,6 +726,9 @@ async function triggerFinalResult(
   fastify: FastifyInstance
 ) {
   try {
+    const jobId = buildWebhookJobId(issueId, candidate.rootCommentId, 'final_result');
+    await reclaimStaleFailedJob(jobId);
+
     await analyzeQueue.add(
       'analyze',
       {
@@ -628,7 +747,7 @@ async function triggerFinalResult(
         },
       },
       {
-        jobId: buildWebhookJobId(issueId, candidate.rootCommentId, 'final_result'),
+        jobId,
         removeOnComplete: { age: 3600 },
         removeOnFail: { age: 3600 },
       },

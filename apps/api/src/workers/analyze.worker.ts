@@ -17,16 +17,22 @@ import {
   postManagerCallAnalysis,
   postTechnicalAnalysis,
   postFinalResult,
+  postAnalysisFailureNoticeOnce,
 } from '../services/linear.poster';
 import type { AnalyzeRequest } from '@shared/schemas';
 import { runStage, describeError } from '../utils/errorLogger';
+import { assessContentQuality } from '../utils/contentQuality';
 
 import { redis } from '../db/redis';
 import { prisma } from '../db/prisma';
-import { fastify } from 'fastify';
-export { redis };
 
 export const analyzeQueue = new Queue('analyze', { connection: redis });
+
+const STAGE_LABELS: Record<string, string> = {
+  manager_call: 'Manager Call',
+  technical: 'Technical Call',
+  final_result: 'Final Result',
+};
 
 export const analyzeWorker = new Worker<AnalyzeRequest & {
   cvText?: string;
@@ -60,6 +66,12 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
 
       if (previousAnalyses.length === 0) {
         console.warn(`No previous analyses found for issue ${meta.linearIssueId} - skipping final result analysis`);
+        if (meta.linearIssueId && parentCommentId) {
+          void postAnalysisFailureNoticeOnce(meta.linearIssueId, parentCommentId, {
+            stageLabel: 'Final Result',
+            failureStage: 'no-data',
+          });
+        }
         return;
       }
 
@@ -129,7 +141,13 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
             { op: 'postFinalResult', linearIssueId: meta.linearIssueId, parentCommentId }
           );
         } catch {
-          // уже залогировали, не ломаем основной флоу
+          // уже залогировали, не ломаем основной флоу — но сообщаем пользователю,
+          // что результат посчитан, а запостить его не удалось.
+          void postAnalysisFailureNoticeOnce(meta.linearIssueId, parentCommentId, {
+            stageLabel: 'Final Result',
+            failureStage: 'linear',
+            detail: `interview id: ${interview.id}`,
+          });
         }
       }
 
@@ -148,22 +166,58 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
       );
     }
     if (!transcript || transcript.length < 100) {
-      throw new Error(
+      const err = new Error(
         meta.transcriptUrl
           ? `Failed to load transcript from ${meta.transcriptUrl} (empty or too short)`
           : 'No transcript text or URL provided'
       );
+      (err as any).pipelineStage = 'transcript';
+      throw err;
     }
 
-    // Шаг 1: CV
+    // Эвристика "это вообще похоже на транскрипт?" — ловит login/error-страницы
+    // и явно битые извлечения дешевле, чем тратить LLM-вызов на мусор.
+    const transcriptIssue = assessContentQuality(transcript, 'transcript');
+    if (transcriptIssue) {
+      const err = new Error(transcriptIssue);
+      (err as any).pipelineStage = 'transcript';
+      throw err;
+    }
+
+    // Шаг 1: CV — вспомогательные данные, поэтому сбой здесь не должен ронять
+    // весь job: логируем/уведомляем и продолжаем с пустым cvText.
     await job.updateProgress(10);
     let cvText = job.data.cvText;
     if (!cvText && meta.cvUrl) {
-      cvText = await runStage(
-        'cv',
-        () => extractCVText(meta.cvUrl!),
-        { op: 'extractCVText', cvUrl: meta.cvUrl }
-      );
+      try {
+        cvText = await runStage(
+          'cv',
+          () => extractCVText(meta.cvUrl!),
+          { op: 'extractCVText', cvUrl: meta.cvUrl }
+        );
+      } catch (err) {
+        cvText = '';
+        if (meta.linearIssueId && parentCommentId) {
+          void postAnalysisFailureNoticeOnce(meta.linearIssueId, parentCommentId, {
+            stageLabel: STAGE_LABELS[(meta as any).stage] ?? 'Analysis',
+            failureStage: 'cv',
+            detail: (err as any)?.message,
+          });
+        }
+      }
+    }
+    if (cvText) {
+      const cvIssue = assessContentQuality(cvText, 'cv');
+      if (cvIssue) {
+        if (meta.linearIssueId && parentCommentId) {
+          void postAnalysisFailureNoticeOnce(meta.linearIssueId, parentCommentId, {
+            stageLabel: STAGE_LABELS[(meta as any).stage] ?? 'Analysis',
+            failureStage: 'cv',
+            detail: cvIssue,
+          });
+        }
+        cvText = '';
+      }
     }
     if (cvText && !meta.candidateName) {
       const extractedName = await runStage(
@@ -331,6 +385,13 @@ export const analyzeWorker = new Worker<AnalyzeRequest & {
         }
       } catch (err) {
         console.error('[analyze] Linear post failed (non-fatal)', describeError(err));
+        if (meta.linearIssueId && parentCommentId) {
+          void postAnalysisFailureNoticeOnce(meta.linearIssueId, parentCommentId, {
+            stageLabel: STAGE_LABELS[(meta as any).stage] ?? 'Analysis',
+            failureStage: 'linear',
+            detail: `interview id: ${interview.id}`,
+          });
+        }
       }
 
     }
@@ -355,4 +416,15 @@ analyzeWorker.on('failed', (job, err) => {
     linearIssueId: (job?.data as any)?.meta?.linearIssueId,
     stage: (job?.data as any)?.meta?.stage,
   });
+
+  const data = job?.data as any;
+  const linearIssueId = data?.meta?.linearIssueId;
+  const parentCommentId = data?.additionalContext?.parentCommentId;
+  if (linearIssueId && parentCommentId) {
+    void postAnalysisFailureNoticeOnce(linearIssueId, parentCommentId, {
+      stageLabel: STAGE_LABELS[data?.meta?.stage] ?? 'Analysis',
+      failureStage: (err as any)?.pipelineStage ?? 'unknown',
+      detail: err?.message,
+    });
+  }
 });

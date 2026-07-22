@@ -4,12 +4,15 @@
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "pnpm --parallel -r dev",
+    "tunnel": "cloudflared tunnel --url http://localhost:3001",
+    "dev:full": "concurrently \"pnpm dev\" \"pnpm tunnel\"",
     "build": "pnpm -r build",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down",
     "infra:reset": "docker compose down -v && docker compose up -d"
   },
   "devDependencies": {
+    "concurrently": "^10.0.3",
     "typescript": "^5.4.0"
   },
   "pnpm": {

@@ -5,6 +5,7 @@ import { PreparationDocPreview } from '@/components/preparation/PreparationDocPr
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, AlertTriangle } from 'lucide-react';
+import { NotFoundState } from '@/components/ui/NotFoundState';
 
 export function PreparationDocPage() {
   const { id } = useParams({ from: '/preparation/$id' });
@@ -38,17 +39,12 @@ export function PreparationDocPage() {
 
   if (isError || !data) {
     return (
-      <div className="p-4 md:p-6 max-w-4xl mx-auto">
-        <button
-          onClick={() => navigate({ to: '/clients' })}
-          className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-600 mb-4"
-        >
-          <ArrowLeft size={16} /> Back
-        </button>
-        <div className="rounded-md border border-dashed p-12 text-center">
-          <p className="text-sm text-slate-500">Document not found.</p>
-        </div>
-      </div>
+      <NotFoundState
+        backLabel="Back"
+        onBack={() => navigate({ to: '/clients' })}
+        title="Document not found."
+        containerClassName="p-4 md:p-6 max-w-4xl mx-auto"
+      />
     );
   }
 

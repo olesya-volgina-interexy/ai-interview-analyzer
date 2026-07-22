@@ -4,6 +4,8 @@ import { clusterTextItems } from '../services/llm.service';
 import { getAliasMap, normalizeClientKey } from '../services/clientAlias.service';
 import { getIssuesForStats } from '../services/linear.service';
 import { redis } from '../db/redis';
+import { getScore } from '../utils/scoring';
+import { computeStageTiming } from '../utils/stageTiming';
 
 const CACHE_TTL = 60 * 30; // 30 минут
 
@@ -31,7 +33,7 @@ export async function statsRoutes(fastify: FastifyInstance) {
       }
     }
 
-    const [requests, interviews, allInterviewsForTiming, allIncomingRequests, historyInPeriod, linearIssues] = await Promise.all([
+    const [requests, interviews, allInterviewsForTiming, allIncomingRequests, historyRows, linearIssues] = await Promise.all([
       prisma.incomingRequest.findMany({
         where: { receivedAt: { gte: fromDate, lte: toDate } },
         select: { status: true, clientName: true, role: true, externalFeedback: true, cvSentCount: true },
@@ -49,8 +51,16 @@ export async function statsRoutes(fastify: FastifyInstance) {
         where: { linearIssueId: { not: null } },
         select: { linearIssueId: true, receivedAt: true },
       }),
+      // Time-on-stage history is intentionally NOT filtered by request.receivedAt:
+      // a candidate created before the period who transitions stages inside it
+      // must still be counted (see docs/fix-time-on-stages-plan.md, RC-0 — this
+      // was the bug that made every stage read "—" even for tickets that moved
+      // yesterday). Each transition is instead attributed to the period by
+      // when it happened (its `enteredAt`), inside computeStageTiming. The
+      // lower bound is intentionally open — a stage's dwell can legitimately
+      // start long before `from` — so this loads full history up to `to`.
       prisma.incomingRequestStatusHistory.findMany({
-        where: { request: { receivedAt: { gte: fromDate, lte: toDate } } },
+        where: { enteredAt: { lte: toDate } },
         select: { incomingRequestId: true, status: true, enteredAt: true },
         orderBy: { enteredAt: 'asc' },
       }),
@@ -107,6 +117,12 @@ export async function statsRoutes(fastify: FastifyInstance) {
     const total = linearIssues.length;
 
     // ── Timing stats ──────────────────────────────────────────────────────
+    // avgTechnicalToFinalDays/avgTotalDays anchor on the Interview table:
+    // "final_result" is an analysis stage, not a Linear ticket status, so it
+    // has no equivalent in IncomingRequestStatusHistory to recompute from.
+    // Every other timing number (below, via computeStageTiming) is derived
+    // from that history instead, so it's the single consistent source for
+    // everything that CAN be tied to a ticket status.
     const byIssue = allInterviewsForTiming.reduce((acc, i) => {
       if (!i.linearIssueId) return acc;
       if (!acc[i.linearIssueId]) acc[i.linearIssueId] = [];
@@ -120,61 +136,28 @@ export async function statsRoutes(fastify: FastifyInstance) {
       return acc;
     }, {} as Record<string, Date>);
 
-    const timings = { triageToManagerCall: [] as number[], managerToTechnical: [] as number[], technicalToFinal: [] as number[], totalDays: [] as number[] };
+    const legacyTimings = { technicalToFinal: [] as number[], totalDays: [] as number[] };
 
     for (const [issueId, group] of Object.entries(byIssue)) {
       const triage = triageByIssue[issueId];
-      const mc = group.find(i => i.stage === 'manager_call');
       const tc = group.find(i => i.stage === 'technical');
       const fr = group.find(i => i.stage === 'final_result');
-      if (triage && mc) timings.triageToManagerCall.push((mc.createdAt.getTime() - triage.getTime()) / 86400000);
-      if (mc && tc) timings.managerToTechnical.push((tc.createdAt.getTime() - mc.createdAt.getTime()) / 86400000);
-      if (tc && fr) timings.technicalToFinal.push((fr.createdAt.getTime() - tc.createdAt.getTime()) / 86400000);
-      if (triage && fr) timings.totalDays.push((fr.createdAt.getTime() - triage.getTime()) / 86400000);
+      if (tc && fr) legacyTimings.technicalToFinal.push((fr.createdAt.getTime() - tc.createdAt.getTime()) / 86400000);
+      if (triage && fr) legacyTimings.totalDays.push((fr.createdAt.getTime() - triage.getTime()) / 86400000);
     }
 
     const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null;
-    // Per-stage durations keep fractional days so the UI can render sub-day gaps as hours.
-    const avgPrecise = (arr: number[]) => arr.length > 0 ? Math.round((arr.reduce((a, b) => a + b, 0) / arr.length) * 1000) / 1000 : null;
 
     // ── Time On Stage по истории статусов ─────────────────────────────────
-    const historyByRequest = historyInPeriod.reduce((acc, h) => {
-      if (!acc[h.incomingRequestId]) acc[h.incomingRequestId] = [];
-      acc[h.incomingRequestId].push(h);
-      return acc;
-    }, {} as Record<string, typeof historyInPeriod>);
+    const { stages, transitions, milestones, pathologicalRequestCount } =
+      computeStageTiming(historyRows, { from: fromDate, to: toDate, now });
 
-    const stageDurations: Record<string, number[]> = {};
-    const daysToHired: number[] = [];
-    const techToHired: number[] = [];
-    const DAY_MS = 86_400_000;
-
-    for (const entries of Object.values(historyByRequest)) {
-      // Длительность каждой завершённой стадии = время до следующего перехода
-      for (let i = 0; i < entries.length - 1; i++) {
-        const status = entries[i].status;
-        const days = (entries[i + 1].enteredAt.getTime() - entries[i].enteredAt.getTime()) / DAY_MS;
-        if (!stageDurations[status]) stageDurations[status] = [];
-        stageDurations[status].push(days);
-      }
-
-      // Тотал до Hired считаем только по тикетам, дошедшим до найма
-      const hiredEntry = entries.find(e => e.status === 'hired');
-      if (hiredEntry && entries.length > 0) {
-        daysToHired.push((hiredEntry.enteredAt.getTime() - entries[0].enteredAt.getTime()) / DAY_MS);
-      }
-
-      // Tech Call → Hired: финальный шаг воронки, только по реально нанятым
-      const techEntry = entries.find(e => e.status === 'technical');
-      if (techEntry && hiredEntry && hiredEntry.enteredAt.getTime() >= techEntry.enteredAt.getTime()) {
-        techToHired.push((hiredEntry.enteredAt.getTime() - techEntry.enteredAt.getTime()) / DAY_MS);
-      }
+    if (pathologicalRequestCount > 0) {
+      fastify.log.warn(
+        { pathologicalRequestCount },
+        'Excluded request(s) with an oversized status-history from stage timing aggregation'
+      );
     }
-
-    const avgTimePerStage: Record<string, number | null> = Object.fromEntries(
-      Object.entries(stageDurations).map(([status, arr]) => [status, avgPrecise(arr)])
-    );
-    avgTimePerStage.hired = avgPrecise(techToHired);
 
     // Тренд по месяцам
     const trendMap = interviews.reduce((acc, i) => {
@@ -235,7 +218,7 @@ export async function statsRoutes(fastify: FastifyInstance) {
     const scoresByRole: Record<string, number[]> = {};
 
     for (const i of interviews) {
-      const score = (i.analysis as any)?.score;
+      const score = getScore(i.analysis);
       if (score == null) continue;
       if (!scoresByLevel[i.level]) scoresByLevel[i.level] = [];
       scoresByLevel[i.level].push(score);
@@ -273,12 +256,13 @@ export async function statsRoutes(fastify: FastifyInstance) {
         },
       },
       timing: {
-        avgTriageToManagerCallDays: avg(timings.triageToManagerCall),
-        avgManagerToTechnicalDays: avg(timings.managerToTechnical),
-        avgTechnicalToFinalDays: avg(timings.technicalToFinal),
-        avgTotalDays: avg(timings.totalDays),
-        avgDaysToHired: avg(daysToHired),
-        avgTimePerStage,
+        avgTriageToManagerCallDays: avg(milestones.triageToManagerCall),
+        avgManagerToTechnicalDays: avg(milestones.managerToTechnical),
+        avgTechnicalToFinalDays: avg(legacyTimings.technicalToFinal),
+        avgTotalDays: avg(legacyTimings.totalDays),
+        avgDaysToHired: avg(milestones.daysToHired),
+        stages,
+        transitions,
         trend,
       },
       quality: {

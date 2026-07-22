@@ -1,6 +1,16 @@
-import { createRouter, createRoute, createRootRoute, Outlet, redirect } from '@tanstack/react-router';
+import { createRouter, createRoute, createRootRoute, Outlet, redirect, useNavigate } from '@tanstack/react-router';
 import { lazy, Suspense } from 'react';
+import { Loader2 } from 'lucide-react';
 import { Layout } from './components/layout/Layout';
+import { NotFoundState } from './components/ui/NotFoundState';
+
+function RouteFallback() {
+  return (
+    <div className="flex items-center justify-center py-24">
+      <Loader2 size={22} className="animate-spin text-[#5067F4]" />
+    </div>
+  );
+}
 
 const DashboardPage        = lazy(() => import('./pages/DashboardPage').then(m => ({ default: m.DashboardPage })));
 const InterviewsPage       = lazy(() => import('./pages/InterviewsPage').then(m => ({ default: m.InterviewsPage })));
@@ -23,7 +33,7 @@ const rootRoute = createRootRoute({
   },
   component: () => (
     <Layout>
-      <Suspense fallback={null}>
+      <Suspense fallback={<RouteFallback />}>
         <Outlet />
       </Suspense>
     </Layout>
@@ -90,6 +100,18 @@ const settingsRoute = createRoute({
   component: SettingsPage,
 });
 
+function GlobalNotFound() {
+  const navigate = useNavigate();
+  return (
+    <NotFoundState
+      backLabel="Back to dashboard"
+      onBack={() => navigate({ to: '/' })}
+      title="Page not found"
+      subtitle="The page you're looking for doesn't exist."
+    />
+  );
+}
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
@@ -103,7 +125,7 @@ const routeTree = rootRoute.addChildren([
   settingsRoute,
 ]);
 
-export const router = createRouter({ routeTree });
+export const router = createRouter({ routeTree, defaultNotFoundComponent: GlobalNotFound });
 
 declare module '@tanstack/react-router' {
   interface Register { router: typeof router }

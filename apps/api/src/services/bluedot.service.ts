@@ -1,13 +1,13 @@
 // apps/api/src/services/bluedot.service.ts
 
-import axios from 'axios';
 import pdfParse from 'pdf-parse';
 import puppeteer from 'puppeteer';
 import { sanitizePdfText, assertExtractedTextPlausible } from '../utils/pdfUtils';
 import { stripNullBytes } from '../utils/textSanitize';
+import { assertPublicHttpUrl, isExactHost, safeAxios as axios } from '../utils/ssrf';
 
 const BLUEDOT_PREVIEW_RE = /bluedothq\.com\/preview\//i;
-const LINEAR_UPLOAD_RE = /uploads\.linear\.app\//i;
+const LINEAR_UPLOAD_HOST = 'uploads.linear.app';
 
 // Сериализуем запуски браузера — на случай если несколько job'ов
 // пытаются открыть сессию одновременно (concurrency=3 в воркере).
@@ -25,6 +25,8 @@ function withChromeLock<T>(fn: () => Promise<T>): Promise<T> {
 export async function fetchTranscript(urlOrPdf: string): Promise<string> {
   const url = urlOrPdf.trim();
 
+  await assertPublicHttpUrl(url);
+
   if (isPdfUrl(url)) {
     return fetchPdfTranscript(url);
   }
@@ -32,7 +34,7 @@ export async function fetchTranscript(urlOrPdf: string): Promise<string> {
   // Linear upload URLs end in a UUID, not ".pdf", so isPdfUrl() misses them.
   // Fetch the bytes and detect the real type by content (magic bytes /
   // Content-Type) instead of trusting the URL extension.
-  if (LINEAR_UPLOAD_RE.test(url)) {
+  if (isExactHost(url, LINEAR_UPLOAD_HOST)) {
     return fetchUploadByContent(url, true);
   }
 
@@ -208,7 +210,7 @@ async function parsePdfBuffer(buffer: Buffer, url: string): Promise<string> {
 // instead of being stored as raw binary.
 async function fetchUploadByContent(url: string, withLinearAuth: boolean): Promise<string> {
   const headers: Record<string, string> = { 'User-Agent': 'Mozilla/5.0' };
-  if (withLinearAuth && process.env.LINEAR_API_KEY && LINEAR_UPLOAD_RE.test(url)) {
+  if (withLinearAuth && process.env.LINEAR_API_KEY && isExactHost(url, LINEAR_UPLOAD_HOST)) {
     headers['Authorization'] = process.env.LINEAR_API_KEY;
   }
 
