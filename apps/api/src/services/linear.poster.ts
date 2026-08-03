@@ -1,4 +1,4 @@
-import { postReply } from './linear.service';
+import { postReply, resolveThreadRoot, updateComment } from './linear.service';
 import type { ManagerCallAnalysis, TechnicalAnalysis } from '@shared/schemas';
 import { describeError } from '../utils/errorLogger';
 import { redis } from '../db/redis';
@@ -17,13 +17,12 @@ async function postReplyWithRetry(
   parentCommentId: string,
   body: string,
   maxRetries = 3
-): Promise<void> {
+): Promise<string | null> {
   let lastError: Error | null = null;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      await postReply(issueId, parentCommentId, body);
-      return;
+      return await postReply(issueId, parentCommentId, body);
     } catch (err: any) {
       lastError = err;
 
@@ -232,4 +231,89 @@ export async function postAnalysisFailureNoticeOnce(
   const isNew = await redis.set(key, '1', 'EX', 2 * 3600, 'NX');
   if (!isNew) return;
   await postAnalysisFailureNotice(issueId, parentCommentId, opts);
+}
+
+// ── Нечитаемое резюме ─────────────────────────────────────────────────────
+// Отдельно от postAnalysisFailureNotice: срабатывает в момент приёма CV, а не
+// во время анализа, поэтому текст короткий и без привязки к стадии. Карточка в
+// пайплайне при этом создаётся — она просто остаётся без имени и уровня.
+//
+// Тело содержит ссылку на резюме, поэтому маркер "_This is an automated
+// message._" обязателен: без него собственный комментарий распознается как
+// новое CV (см. isOwnCommentBody).
+
+// В ключе храним id опубликованного уведомления, чтобы потом переписать его
+// подтверждением. PENDING — метка «постим прямо сейчас»: занимаем ключ через NX
+// до запроса в Linear, иначе два одновременных приёма CV дали бы два уведомления.
+const CV_UNREADABLE_TTL_SECONDS = 7 * 24 * 3600;
+const CV_UNREADABLE_PENDING = 'pending';
+const cvUnreadableKey = (issueId: string, commentId: string) =>
+  `cv-unreadable-notice:${issueId}:${commentId}`;
+
+export async function postCvUnreadableNoticeOnce(
+  issueId: string,
+  commentId: string,
+  cvUrl: string,
+): Promise<void> {
+  const key = cvUnreadableKey(issueId, commentId);
+  const isNew = await redis
+    .set(key, CV_UNREADABLE_PENDING, 'EX', CV_UNREADABLE_TTL_SECONDS, 'NX')
+    .catch(() => CV_UNREADABLE_PENDING);
+  if (!isNew) return;
+
+  const body = [
+    "⚠️ **Couldn't read this CV**",
+    '',
+    `${cvUrl} is unavailable or the format isn't supported (PDF, DOC, DOCX, TXT).`,
+    '',
+    '**What to do:** edit this comment with a working link or file — the CV will be picked up automatically, no need to post a new comment.',
+    '',
+    '_This is an automated message._',
+  ].join('\n');
+
+  try {
+    const noticeId = await postReplyWithRetry(issueId, await resolveThreadRoot(commentId), body);
+    if (noticeId) {
+      // XX: если пока мы постили, резюме успели починить и ключ уже снят
+      // (resolveCvUnreadableNotice), не воскрешаем его — иначе он на неделю
+      // заблокировал бы уведомления по этому комментарию.
+      await redis.set(key, noticeId, 'EX', CV_UNREADABLE_TTL_SECONDS, 'XX').catch(() => {});
+    }
+  } catch (err) {
+    console.error('[linear] Failed to post CV-unreadable notice (giving up)', {
+      ...describeError(err),
+      issueId,
+      commentId,
+    });
+  }
+}
+
+// Резюме починили и оно прочиталось: предупреждение не должно висеть в треде,
+// поэтому переписываем его коротким подтверждением, а не оставляем как есть и не
+// удаляем — след того, что проблема была и закрыта, полезен. Ключ снимаем в
+// любом случае, чтобы следующая поломка той же ссылки снова была видна.
+export async function resolveCvUnreadableNotice(
+  issueId: string,
+  commentId: string,
+): Promise<void> {
+  const key = cvUnreadableKey(issueId, commentId);
+  const noticeId = await redis.get(key).catch(() => null);
+  await redis.del(key).catch(() => {});
+
+  // Переписываем только если в ключе действительно лежит id комментария: там
+  // может быть метка pending (уведомление ещё постится) или значение от прошлой
+  // версии, которая id не сохраняла.
+  if (!noticeId || !/^[0-9a-f-]{32,}$/i.test(noticeId)) return;
+
+  const body = ['✅ **CV read successfully.**', '', '_This is an automated message._'].join('\n');
+  try {
+    await updateComment(noticeId, body);
+  } catch (err) {
+    console.warn('[linear] Failed to replace CV-unreadable notice with confirmation', {
+      ...describeError(err),
+      issueId,
+      commentId,
+      noticeId,
+    });
+  }
 }

@@ -309,10 +309,15 @@ export interface PipelineCandidateItem {
   role: string | null;
   clientName: string | null;
   cvSubmittedAt: string;
+  // Сколько резюме этого кандидата прикреплено к этой же вакансии (>1 — строка
+  // свёрнута из нескольких карточек) и даты всех прикреплений, от новых к старым.
+  cvCount: number;
+  cvSubmittedDates: string[];
   linearIssueId: string;
   interviewCount: number;
-  lastStage: string | null;
-  lastDecision: string | null;
+  // Все пройденные стадии по ходу воронки, а не только последняя — в колонке
+  // Interview Status показываем таблетку на каждую.
+  stages: Array<{ stage: string; decision: string | null }>;
 }
 
 export const pipelineCandidatesApi = {

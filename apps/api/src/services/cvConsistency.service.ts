@@ -3,7 +3,7 @@ import { prisma } from '../db/prisma';
 import { llmClient, LLM_MODEL } from './llm.client';
 import { extractCVText } from './cv.service';
 import { extractExperienceTable } from './cvExperienceExtractor.service';
-import { getIssueRef, postReply } from './linear.service';
+import { getIssueRef, postReply, resolveThreadRoot } from './linear.service';
 import {
   CV_CONSISTENCY_SYSTEM_PROMPT,
   buildCvConsistencyUserMessage,
@@ -233,7 +233,10 @@ export async function runCvConsistencyCheck(rootCommentId: string): Promise<void
       reason: verdict.reason,
     });
     try {
-      await postReply(current.linearIssueId, current.rootCommentId, body);
+      // rootCommentId карточки — это комментарий, в котором лежало резюме, и он
+      // сам может быть реплаем (см. resolveThreadRoot).
+      const parentId = await resolveThreadRoot(current.rootCommentId);
+      await postReply(current.linearIssueId, parentId, body);
       posted = true;
     } catch (err) {
       postFailed = true;

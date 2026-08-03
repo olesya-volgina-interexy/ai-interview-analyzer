@@ -162,6 +162,8 @@ For each, output:
       didn't know but didn't admit it.
     "not_answered" — avoided, deflected, or explicitly didn't know.
     "n/a_reverse_question" — candidate asked interviewer (only for candidate_to_interviewer).
+    Use ONLY one of these five values. "positive"/"negative"/"neutral" belong to
+    interviewerStatements.interpretation and are INVALID here.
   coversRequirements: array of requirement ids from Task A that this question tested.
     Match by MEANING, not exact words. "Tell me about your warehouse setup" tests "SAP WM".
     "How do you write tests?" tests "Jest" or "testing experience". Empty [] if none apply.
@@ -298,7 +300,8 @@ because the candidate eventually got their point across.
   "questions": [
     { "speaker":"", "timestamp":"", "quote":"",
       "direction":"interviewer_to_candidate|candidate_to_interviewer",
-      "topic":"", "answer_summary":"", "answer_quality":"",
+      "topic":"", "answer_summary":"",
+      "answer_quality":"detailed_with_examples|correct_but_surface|vague_or_generic|not_answered|n/a_reverse_question",
       "coversRequirements": [] }
   ],
   "candidateSkills": [{ "skill":"", "context":"", "quote":"", "timestamp":"" }],

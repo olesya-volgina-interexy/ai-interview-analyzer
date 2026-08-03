@@ -32,6 +32,7 @@ export interface ParsedIssue {
   // Накапливаются (append) и подмешиваются к запросу при анализе.
   brokerRequestSupplement: string | null;
   status: string;
+  stateId: string | null;
   candidates: CandidateThread[];
 }
 
@@ -76,6 +77,7 @@ export async function parseIssue(issueId: string): Promise<ParsedIssue> {
     brokerRequest: issueData.description,
     brokerRequestSupplement,
     status: issueData.stateName,
+    stateId: issueData.stateId,
     candidates,
   };
 }
@@ -90,16 +92,18 @@ function parseCandidateThread(
   const cvUrl = extractCvUrlFromComment(root.body);
 
   const managerTranscriptReply = replies.find(r =>
-    r.body.includes('#manager_call_transcript')
+    containsHashtag(r.body, '#manager_call_transcript')
   );
   const feedbackReply = replies.find(r =>
-    r.body.includes('#feedback_manager_call')
+    containsHashtag(r.body, '#feedback_manager_call')
   );
   const techTranscriptReply = replies.find(r =>
-    r.body.includes('#technical_call_transcript')
+    containsHashtag(r.body, '#technical_call_transcript')
   );
-  const hiredReply = replies.find(r => r.body.trim() === '#hired');
-  const lostReply = replies.find(r => r.body.trim() === '#lost');
+  // #hired/#lost раньше сверялись строгим равенством (body.trim() === '#hired'),
+  // поэтому любой дописанный к маркеру текст молча отключал финальный анализ.
+  const hiredReply = replies.find(r => containsHashtag(r.body, '#hired'));
+  const lostReply = replies.find(r => containsHashtag(r.body, '#lost'));
 
   return {
     rootCommentId: root.id,
@@ -130,7 +134,7 @@ function isCandidateThread(
 ): boolean {
   // Коммент-дополнение к запросу брокера — не ветка кандидата.
   // Иначе его текст (часто содержит "cv"/"resume") ложно матчится ниже.
-  if (root.body.includes('#brokers_request')) return false;
+  if (containsHashtag(root.body, '#brokers_request')) return false;
 
   const hasCV = root.body.includes('my.visualcv.com') ||
     root.body.includes('visualcv') ||
@@ -138,11 +142,11 @@ function isCandidateThread(
     root.body.toLowerCase().includes('resume');
 
   const hasHashtag = [...replies, root].some(c =>
-    c.body.includes('#manager_call_transcript') ||
-    c.body.includes('#technical_call_transcript') ||
-    c.body.includes('#feedback_manager_call') ||
-    c.body.trim() === '#hired' ||
-    c.body.trim() === '#lost'
+    containsHashtag(c.body, '#manager_call_transcript') ||
+    containsHashtag(c.body, '#technical_call_transcript') ||
+    containsHashtag(c.body, '#feedback_manager_call') ||
+    containsHashtag(c.body, '#hired') ||
+    containsHashtag(c.body, '#lost')
   );
 
   return hasCV || hasHashtag;
@@ -164,8 +168,37 @@ export function extractCVUrl(body: string): string | null {
   return null;
 }
 
-// CV из root-комментария: либо visualcv-ссылка, либо приложенный файлом
-// (PDF/DOC/TXT). Вызывается только для root-комментариев.
+// Комментарий со стадийным хэштегом несёт транскрипт/фидбек/решение, а не CV.
+// Проверка обязательна перед детектом резюме: транскрипты прикладывают файлом
+// в том же markdown-формате, что и CV ([name.txt](url) / [name.pdf](url), см.
+// extractAttachmentUrl), поэтому иначе каждый транскрипт распознаётся как новое
+// резюме — лишняя карточка в пайплайне и накрутка cvSentCount.
+// #brokers_request здесь же: это дополнение к запросу брокера, его текст часто
+// содержит "cv"/"resume" (ср. isCandidateThread).
+const STAGE_HASHTAGS = [
+  '#manager_call_transcript',
+  '#technical_call_transcript',
+  '#feedback_manager_call',
+  '#hired',
+  '#lost',
+  '#brokers_request',
+];
+
+// Хэштег как отдельный токен, в любом месте комментария. Достаточно свободно,
+// чтобы к маркеру можно было дописать текст ("#hired, стартует в понедельник")
+// и чтобы срабатывала markdown-форма, которую иногда подставляет Linear —
+// [#hired](<#hired>). Lookahead не даёт #hired поймать #hired_soon.
+export function containsHashtag(body: string, hashtag: string): boolean {
+  const tag = hashtag.replace(/^#/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`#${tag}(?![\\w-])`, 'i').test(body);
+}
+
+export function hasStageHashtag(body: string): boolean {
+  return STAGE_HASHTAGS.some(hashtag => containsHashtag(body, hashtag));
+}
+
+// CV из комментария: либо visualcv-ссылка, либо приложенный файлом
+// (PDF/DOC/TXT). Вызывать только после hasStageHashtag.
 export function extractCvUrlFromComment(body: string): string | null {
   const visualcv = extractCVUrl(body);
   if (visualcv) return visualcv;

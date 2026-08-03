@@ -40,6 +40,64 @@ export async function verifyLinearAuth(): Promise<void> {
   }
 }
 
+// ── Распознавание собственных комментариев ────────────────────────────────
+// Детект CV работает и в реплаях, а наши же ответы (алерт о расхождении CV,
+// уведомление о сбое анализа) рендерят внутрь ссылку на резюме — без этой
+// проверки они распознаются как новое CV и триггерят сами себя.
+//
+// Проверять автора (viewer id токена) нельзя: LINEAR_API_KEY — персональный
+// ключ, поэтому наши комментарии приходят от того же userId, что и живые
+// комментарии этого человека, и такая проверка глушила бы детект целиком.
+// Вместо этого запоминаем id каждого комментария, который публикуем сами.
+// Вебхук приходит через секунды после постинга, поэтому короткого TTL хватает.
+const OWN_COMMENT_TTL_SECONDS = 3600;
+const OWN_COMMENT_REDIS_TIMEOUT_MS = 1000;
+const ownCommentKey = (commentId: string) => `linear:own-comment:${commentId}`;
+
+// Redis подключаем лениво: этот модуль импортируют CLI-скрипты (бэкфиллы,
+// test-*), а ioredis держит event loop открытым — с обычным импортом они
+// перестали бы завершаться сами.
+async function getRedis() {
+  const { redis } = await import('../db/redis.js');
+  return redis;
+}
+
+// Клиент создан с maxRetriesPerRequest: null (требование BullMQ), поэтому при
+// недоступном Redis команды не падают, а бесконечно копятся в очереди. Без
+// таймаута это подвесило бы постинг комментария в Linear.
+async function withRedisTimeout<T>(op: (redis: any) => Promise<T>, fallback: T): Promise<T> {
+  try {
+    const redis = await getRedis();
+    let timer: NodeJS.Timeout;
+    const timeout = new Promise<T>(resolve => {
+      timer = setTimeout(() => resolve(fallback), OWN_COMMENT_REDIS_TIMEOUT_MS);
+    });
+    return await Promise.race([op(redis), timeout]).finally(() => clearTimeout(timer!));
+  } catch {
+    return fallback;
+  }
+}
+
+async function rememberOwnComment(commentId: string): Promise<void> {
+  await withRedisTimeout(
+    redis => redis.set(ownCommentKey(commentId), '1', 'EX', OWN_COMMENT_TTL_SECONDS),
+    null,
+  );
+}
+
+export async function wasPostedByUs(commentId: string): Promise<boolean> {
+  return withRedisTimeout(async redis => (await redis.exists(ownCommentKey(commentId))) === 1, false);
+}
+
+// Страховка к реестру выше: покрывает комментарии, опубликованные до деплоя
+// или после сброса Redis. Оба тела, в которые попадает ссылка на резюме,
+// содержат один из этих маркеров.
+const OWN_COMMENT_MARKERS = ['Possible CV mismatch', '_This is an automated message._'];
+
+export function isOwnCommentBody(body: string): boolean {
+  return OWN_COMMENT_MARKERS.some(marker => body.includes(marker));
+}
+
 // ── Типы ──────────────────────────────────────────────────────────────────
 
 export interface LinearComment {
@@ -54,6 +112,10 @@ export interface LinearIssueData {
   title: string;
   description: string | null;
   stateName: string;
+  // Стабильный id workflow-стейта. Имя статуса в Linear переименовывают
+  // (в проде уже было: "Client Review" → "Client Review (CV)"), поэтому
+  // решения по статусу принимаются через resolveStage по id, а не по имени.
+  stateId: string | null;
   clientName: string | null;
   role: string;
   labels: string[];
@@ -68,7 +130,7 @@ export async function getIssueData(issueId: string): Promise<LinearIssueData> {
         id
         title
         description
-        state { name }
+        state { id name }
         labels(first: 50) { nodes { name } }
       }
     }
@@ -79,7 +141,7 @@ export async function getIssueData(issueId: string): Promise<LinearIssueData> {
       id: string;
       title: string | null;
       description: string | null;
-      state: { name: string } | null;
+      state: { id: string; name: string } | null;
       labels: { nodes: Array<{ name: string }> };
     };
   }>(query, { id: issueId });
@@ -94,6 +156,7 @@ export async function getIssueData(issueId: string): Promise<LinearIssueData> {
     title: issue.title ?? '',
     description: issue.description ?? null,
     stateName: issue.state?.name ?? 'unknown',
+    stateId: issue.state?.id ?? null,
     clientName,
     role,
     labels: labelNames,
@@ -356,12 +419,23 @@ export interface LinearCommentDetail {
   id: string;
   body: string;
   bodyData: string | null;
+  parent: { id: string } | null;
+}
+
+// Треды в Linear одноуровневые: commentCreate с parentId, указывающим на
+// реплай, — не поддерживаемая форма. Ключ карточки пайплайна теперь может быть
+// реплаем (CV кладут и в ответ в ветке), поэтому перед постингом ответа цель
+// приводим к корню ветки. При ошибке API возвращаем исходный id — хуже, чем
+// было, не станет.
+export async function resolveThreadRoot(commentId: string): Promise<string> {
+  const detail = await getComment(commentId).catch(() => null);
+  return detail?.parent?.id ?? commentId;
 }
 
 export async function getComment(commentId: string): Promise<LinearCommentDetail | null> {
   const data = await linearGraphQL<{
     comment: LinearCommentDetail | null;
-  }>('query GetComment($id: String!) { comment(id: $id) { id body bodyData } }', {
+  }>('query GetComment($id: String!) { comment(id: $id) { id body bodyData parent { id } } }', {
     id: commentId,
   });
   return data.comment ?? null;
@@ -434,11 +508,14 @@ export async function getIssueStatusHistory(
 
 // ── Постинг reply в ветку кандидата (через прямой GraphQL mutation) ───────
 
+// Возвращает id созданного комментария — нужен, чтобы потом переписать его
+// (уведомление о нечитаемом CV заменяется подтверждением, см. linear.poster).
+// Существующие вызывающие возврат просто игнорируют.
 export async function postReply(
   issueId: string,
   parentId: string,
   body: string
-): Promise<void> {
+): Promise<string | null> {
   const mutation = `
     mutation CreateComment($input: CommentCreateInput!) {
       commentCreate(input: $input) {
@@ -456,6 +533,30 @@ export async function postReply(
 
   if (!data.commentCreate?.success) {
     throw new Error('Linear commentCreate returned success=false');
+  }
+
+  const postedId = data.commentCreate.comment?.id ?? null;
+  if (postedId) await rememberOwnComment(postedId);
+  return postedId;
+}
+
+// Перезаписывает тело нашего же комментария. Используется, чтобы предупреждение
+// о нечитаемом резюме не висело в треде после того, как ссылку починили.
+export async function updateComment(commentId: string, body: string): Promise<void> {
+  const mutation = `
+    mutation UpdateComment($id: String!, $input: CommentUpdateInput!) {
+      commentUpdate(id: $id, input: $input) {
+        success
+      }
+    }
+  `;
+
+  const data = await linearGraphQL<{
+    commentUpdate: { success: boolean } | null;
+  }>(mutation, { id: commentId, input: { body } });
+
+  if (!data.commentUpdate?.success) {
+    throw new Error('Linear commentUpdate returned success=false');
   }
 }
 

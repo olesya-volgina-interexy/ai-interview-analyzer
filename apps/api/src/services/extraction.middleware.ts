@@ -144,6 +144,25 @@ const QUALITY_SCORES: Record<AnswerQuality, number> = {
   'n/a_reverse_question': 0,
 };
 
+const ANSWER_QUALITY_VALUES = new Set<string>(Object.keys(QUALITY_SCORES));
+
+// Вывод step 1 не валидируется схемой, а рядом в том же JSON лежит шкала
+// interpretation (positive/negative/neutral) — модель их путает и присылает
+// answer_quality: "neutral". Такое значение давало QUALITY_SCORES[...] ===
+// undefined, дальше NaN в answerQualityScore и score, и Zod ронял анализ
+// целиком с "Failed to parse LLM response". Запись с нераспознанным качеством
+// исключаем из подсчётов, а не приравниваем к плохому ответу — иначе сбой
+// формата занижал бы балл кандидату.
+function hasKnownAnswerQuality(q: Step1Question): boolean {
+  if (ANSWER_QUALITY_VALUES.has(q.answer_quality)) return true;
+  console.warn('[middleware] dropping question with unknown answer_quality', {
+    answer_quality: q.answer_quality,
+    topic: q.topic,
+    timestamp: q.timestamp,
+  });
+  return false;
+}
+
 const MODIFIER_CORRECTION = -15;
 const MODIFIER_RECAP = -3;
 const MODIFIER_VERBOSITY = -2;
@@ -156,6 +175,13 @@ const SOFT_TOPIC_KEYWORDS = [
   'free time', 'energy', 'dislikes', 'likes at work', 'favorite',
   'motivation', 'values', 'culture',
 ];
+
+// Балл уходит в Zod-схему как number — NaN/Infinity здесь означает падение
+// всего анализа, поэтому страхуемся на выходе, а не только на входе.
+function clampScore(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
+}
 
 function isSoftTopic(topic: string): boolean {
   const t = (topic ?? '').toLowerCase();
@@ -185,7 +211,7 @@ export function processExtraction(
   _meta: InterviewMeta,
 ): ProcessedExtraction {
   const parsedRequirements = step1.parsedBrokerRequirements ?? [];
-  const questions: Step1Question[] = step1.questions ?? [];
+  const questions: Step1Question[] = (step1.questions ?? []).filter(hasKnownAnswerQuality);
   const candidateSkills = step1.candidateSkills ?? [];
   const interviewerStatements = step1.interviewerStatements ?? [];
   const signals: Step1Signals = step1.interviewerSignals ?? {};
@@ -314,7 +340,7 @@ export function processExtraction(
   answerQualityScore += corrections.length * MODIFIER_CORRECTION;
   answerQualityScore += recaps.length * MODIFIER_RECAP;
   answerQualityScore += Math.max(verbosityInstances.length * MODIFIER_VERBOSITY, MODIFIER_VERBOSITY_MAX);
-  answerQualityScore = Math.max(0, Math.min(100, answerQualityScore));
+  answerQualityScore = clampScore(answerQualityScore);
 
   const scopeCoverageScore = brokerCoveragePercent;
 
@@ -322,9 +348,11 @@ export function processExtraction(
   //   - With broker requirements: weighted blend of answer quality × scope coverage.
   //   - Without requirements (or broker_request absent): score = answerQualityScore,
   //     because there is no scope to discount against.
-  const score = parsedRequirements.length === 0
-    ? answerQualityScore
-    : Math.round(answerQualityScore * (0.4 + 0.6 * scopeCoverageScore / 100));
+  const score = clampScore(
+    parsedRequirements.length === 0
+      ? answerQualityScore
+      : Math.round(answerQualityScore * (0.4 + 0.6 * scopeCoverageScore / 100)),
+  );
 
   // ── 7. Technical level ────────────────────────────────────────────────────
   const vagueCount = scoredQs.filter(q =>
