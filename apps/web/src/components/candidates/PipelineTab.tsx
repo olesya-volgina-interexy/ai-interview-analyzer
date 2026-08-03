@@ -10,29 +10,80 @@ import { TableSkeleton } from '@/components/ui/TableSkeleton';
 import { PaginationFooter } from '@/components/ui/PaginationFooter';
 import { ErrorMessage } from '@/components/ui/ErrorMessage';
 
-const STAGE_LABELS: Record<string, string> = {
-  manager_call: 'Manager Call',
-  technical: 'Technical',
-  final_result: 'Final',
+const STAGE_PILLS: Record<string, { label: string; bg: string; color: string }> = {
+  manager_call: { label: 'Manager Call', bg: '#E6F1FB', color: '#185FA5' },
+  technical: { label: 'Technical', bg: '#EEEDFE', color: '#534AB7' },
+  final_result: { label: 'Final', bg: '#f1f5f9', color: '#64748b' },
 };
 
+// Финальную стадию подписываем исходом, а не словом "Final" — оно ничего
+// не говорит о результате.
+const DECISION_PILLS: Record<string, { label: string; bg: string; color: string }> = {
+  hired: { label: 'Hired', bg: '#EAF3DE', color: '#3B6D11' },
+  rejected: { label: 'Rejected', bg: '#FCEBEB', color: '#A32D2D' },
+};
+
+// Дата последнего прикрепления резюме. Если резюме на эту вакансию присылали
+// несколько раз, строка свёрнута (см. группировку в /pipeline-candidates) —
+// показываем счётчик, а полный список дат отдаём по наведению.
+// dropUp — у обёртки таблицы overflow-hidden, поэтому для нижних строк
+// раскрываем список вверх, иначе он обрезается.
+function CvSentCell({ item, dropUp }: { item: PipelineCandidateItem; dropUp: boolean }) {
+  const count = item.cvCount ?? 1;
+  if (count <= 1) return <>{formatDate(item.cvSubmittedAt)}</>;
+
+  return (
+    <span className="group relative inline-flex items-center gap-1.5">
+      <span>{formatDate(item.cvSubmittedAt)}</span>
+      <span
+        className="inline-flex items-center justify-center rounded-full px-1.5 font-medium cursor-default"
+        style={{ background: '#EEEDFE', color: '#534AB7', fontSize: 10, minWidth: 18, lineHeight: '16px' }}
+      >
+        ×{count}
+      </span>
+      <span
+        className={`pointer-events-none absolute left-0 z-20 hidden min-w-44 rounded-lg border p-2.5 shadow-lg group-hover:block ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'}`}
+        style={{ background: 'var(--color-background-primary, #fff)', borderColor: '#D9DEFB' }}
+      >
+        <span className="block font-semibold" style={{ color: '#3D52D9', fontSize: 10 }}>
+          {count} CVs sent for this vacancy
+        </span>
+        {item.cvSubmittedDates?.map((d, i) => (
+          <span key={d + i} className="mt-1 block whitespace-nowrap" style={{ color: 'var(--color-text-secondary)', fontSize: 11 }}>
+            {formatDate(d)}
+            {i === 0 && <span style={{ color: 'var(--color-text-tertiary)' }}> · latest</span>}
+          </span>
+        ))}
+      </span>
+    </span>
+  );
+}
+
 function PipelineBadge({ item }: { item: PipelineCandidateItem }) {
-  if (item.interviewCount === 0) {
+  const stages = item.stages ?? [];
+  if (!stages.length) {
     return <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#f1f5f9', color: '#94a3b8' }}>No interviews yet</span>;
   }
-  if (item.lastDecision === 'hired') {
-    return <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EAF3DE', color: '#3B6D11' }}>Hired</span>;
-  }
-  if (item.lastDecision === 'rejected') {
-    return <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#FCEBEB', color: '#A32D2D' }}>Rejected</span>;
-  }
-  if (item.lastStage === 'technical') {
-    return <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#EEEDFE', color: '#534AB7' }}>Technical</span>;
-  }
-  if (item.lastStage === 'manager_call') {
-    return <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: '#E6F1FB', color: '#185FA5' }}>Manager Call</span>;
-  }
-  return <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#f1f5f9', color: '#64748b' }}>{STAGE_LABELS[item.lastStage ?? ''] ?? item.lastStage}</span>;
+
+  return (
+    <div className="flex flex-wrap gap-1">
+      {stages.map(({ stage, decision }) => {
+        const pill =
+          (stage === 'final_result' && decision ? DECISION_PILLS[decision] : null) ??
+          STAGE_PILLS[stage] ??
+          { label: stage, bg: '#f1f5f9', color: '#64748b' };
+        return (
+          <span
+            key={stage}
+            className="text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap"
+            style={{ background: pill.bg, color: pill.color }}
+          >
+            {pill.label}
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 export function PipelineTab() {
@@ -54,7 +105,7 @@ export function PipelineTab() {
       clientName: clientFilter || undefined,
       hasInterviews: (hasInterviews as any) || undefined,
       page,
-      limit: limit + 1,
+      limit,
     }).then(r => r.data),
   });
 
@@ -64,6 +115,7 @@ export function PipelineTab() {
   });
 
   const items = data ?? [];
+  const visible = items.slice(0, limit);
 
   return (
     <div className="space-y-4">
@@ -117,21 +169,21 @@ export function PipelineTab() {
               <tr style={{ background: '#EEF0FE', borderBottom: '0.5px solid #D9DEFB' }}>
                 <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[22%]" style={{ color: '#3D52D9' }}>Name</th>
                 <th className="hidden md:table-cell text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[18%]" style={{ color: '#3D52D9' }}>Role</th>
-                <th className="hidden md:table-cell text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[18%]" style={{ color: '#3D52D9' }}>Client</th>
-                <th className="hidden md:table-cell text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[12%]" style={{ color: '#3D52D9' }}>Level</th>
-                <th className="hidden md:table-cell text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[14%]" style={{ color: '#3D52D9' }}>CV Sent</th>
-                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[16%]" style={{ color: '#3D52D9' }}>Interview Status</th>
+                <th className="hidden md:table-cell text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[16%]" style={{ color: '#3D52D9' }}>Client</th>
+                <th className="hidden md:table-cell text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[9%]" style={{ color: '#3D52D9' }}>Level</th>
+                <th className="hidden md:table-cell text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[13%]" style={{ color: '#3D52D9' }}>CV Sent</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide w-[22%]" style={{ color: '#3D52D9' }}>Interview Status</th>
               </tr>
             </thead>
             <tbody>
-              {items.slice(0, limit).map((c, idx) => {
+              {visible.map((c, idx) => {
                 const name = c.candidateName ?? '—';
                 const avatar = getAvatarColor(name);
                 return (
                   <tr
                     key={c.id}
                     className="transition-colors"
-                    style={{ borderBottom: idx < items.slice(0, limit).length - 1 ? '0.5px solid var(--color-border-tertiary)' : 'none' }}
+                    style={{ borderBottom: idx < visible.length - 1 ? '0.5px solid var(--color-border-tertiary)' : 'none' }}
                     onMouseEnter={e => (e.currentTarget.style.background = 'var(--color-background-secondary)')}
                     onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                   >
@@ -159,7 +211,7 @@ export function PipelineTab() {
                     <td className="hidden md:table-cell px-4 py-3 truncate" style={{ color: 'var(--color-text-secondary)' }}>{c.clientName ?? '—'}</td>
                     <td className="hidden md:table-cell px-4 py-3" style={{ color: 'var(--color-text-secondary)' }}>{c.level ?? '—'}</td>
                     <td className="hidden md:table-cell px-4 py-3 whitespace-nowrap" style={{ color: 'var(--color-text-tertiary)', fontSize: 12 }}>
-                      {formatDate(c.cvSubmittedAt)}
+                      <CvSentCell item={c} dropUp={visible.length > 3 && idx >= visible.length - 3} />
                     </td>
                     <td className="px-4 py-3">
                       <PipelineBadge item={c} />

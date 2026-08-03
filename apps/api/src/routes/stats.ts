@@ -33,10 +33,10 @@ export async function statsRoutes(fastify: FastifyInstance) {
       }
     }
 
-    const [requests, interviews, allInterviewsForTiming, allIncomingRequests, historyRows, linearIssues] = await Promise.all([
+    const [requests, interviews, allInterviewsForTiming, allIncomingRequests, historyRows, linearIssues, cvsSubmitted] = await Promise.all([
       prisma.incomingRequest.findMany({
         where: { receivedAt: { gte: fromDate, lte: toDate } },
-        select: { status: true, clientName: true, role: true, externalFeedback: true, cvSentCount: true },
+        select: { status: true, clientName: true, role: true, externalFeedback: true },
       }),
       prisma.interview.findMany({
         where: { createdAt: { gte: fromDate, lte: toDate } },
@@ -68,6 +68,14 @@ export async function statsRoutes(fastify: FastifyInstance) {
       // правды), а не из зеркала IncomingRequest — иначе цифры недосчитываются
       // из-за пропущенных вебхуков и устаревших статусов.
       getIssuesForStats({ from: fromDate, to: toDate }),
+      // "CVs sent" считаем по дате прикрепления самого резюме, а не по
+      // receivedAt тикета: резюме по вакансии, поступившей в прошлом месяце,
+      // должно попадать в текущий период (раньше такие CV просто исчезали из
+      // виджета — он показывал "0 across 0 vacancies" при живых карточках).
+      prisma.pipelineCandidate.findMany({
+        where: { cvSubmittedAt: { gte: fromDate, lte: toDate } },
+        select: { linearIssueId: true },
+      }),
     ]);
 
     // Requests stats — из живых данных Linear (фильтр по issue.createdAt в периоде)
@@ -94,8 +102,8 @@ export async function statsRoutes(fastify: FastifyInstance) {
     }, {} as Record<string, number>);
 
     // Pipeline stats
-    const reachedCvSent = requests.filter(r => r.status === 'cv_sent' || r.cvSentCount > 0).length;
-    const totalCvSent = requests.reduce((sum, r) => sum + (r.cvSentCount ?? 0), 0);
+    const totalCvSent = cvsSubmitted.length;
+    const reachedCvSent = new Set(cvsSubmitted.map(c => c.linearIssueId)).size;
 
     // Collapse each candidate (issue + root-comment thread) to the furthest stage
     // reached, then count cumulatively so a later stage never outnumbers an earlier one.

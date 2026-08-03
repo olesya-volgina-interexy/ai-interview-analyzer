@@ -83,9 +83,21 @@ const LINEAR_STATE_TO_STATUS: Record<string, string> = {
   'duplicate': 'duplicate',
 };
 
+// Приводим имя стейта к виду ключа карты выше: типографские апострофы и
+// двойные пробелы — обычный результат ручного ввода в Linear, а для
+// "Broker's Call" такое расхождение раньше означало нерезолвнутый статус и,
+// как следствие, полностью отключённый триггер анализа.
+function normalizeStateName(stateName: string): string {
+  return stateName
+    .replace(/[‘’ʼ`´]/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
 export function mapLinearStateToStatus(stateName: string | null | undefined): string | undefined {
   if (!stateName) return undefined;
-  const key = stateName.trim().toLowerCase();
+  const key = normalizeStateName(stateName);
   if (LINEAR_STATE_TO_STATUS[key]) return LINEAR_STATE_TO_STATUS[key];
 
   // Some workflows suffix a parenthetical qualifier onto a state name to mark

@@ -7,6 +7,8 @@ import {
   findCandidatesForFinalResult,
   extractCvUrlFromComment,
   extractCvAttachmentFromBodyData,
+  hasStageHashtag,
+  containsHashtag,
   type CandidateThread,
 } from '../../services/linear.parser';
 import { extractCVText, detectLevelFromCV, extractNameFromCV, extractNameFromTranscript  } from '../../services/cv.service';
@@ -18,23 +20,163 @@ import { getExistingAnalysesForIssue, upsertIncomingRequest, updateIncomingReque
 import { prisma } from '../../db/prisma';
 import { invalidateStatsCache } from '../../services/statsCache';
 import { fetchTranscript } from '../../services/bluedot.service';
-import { parseIssueTitle, getComment, splitVacancies, getIssueStatusHistory } from '../../services/linear.service';
+import { parseIssueTitle, getComment, splitVacancies, getIssueStatusHistory, wasPostedByUs, isOwnCommentBody } from '../../services/linear.service';
 import { matchVacancyToCandidate } from '../../services/vacancyMatcher.service';
 import { resolveStage } from '../../services/stageResolver';
-import { postAnalysisFailureNoticeOnce } from '../../services/linear.poster';
+import {
+  postAnalysisFailureNoticeOnce,
+  postCvUnreadableNoticeOnce,
+  resolveCvUnreadableNotice,
+} from '../../services/linear.poster';
 import { assessContentQuality } from '../../utils/contentQuality';
 
-
-const STATUS_BROKERS_CALL = "Broker's Call";
-const STATUS_TECH_CALL = 'Tech Call';
-const STATUS_HIRED = 'Hired';
-const STATUS_LOST = 'Lost';
 
 // Троттлинг реконсиляции истории статусов из Linear (см. reconcileHistoryThrottled
 // ниже) — не даёт двум почти одновременным вебхукам по одному тикету запустить
 // реконсиляцию дважды подряд.
 const lastReconciledAt = new Map<string, number>();
 const RECONCILE_THROTTLE_MS = 60_000;
+
+// Маркеры, появление которых заставляет пересмотреть стадии тикета. Матчинг —
+// через containsHashtag, тот же, которым парсер вытаскивает решение, иначе
+// «маркер найден» и «решение распознано» могут разойтись.
+const STAGE_MARKERS = [
+  '#feedback_manager_call',
+  '#manager_call_transcript',
+  '#technical_call_transcript',
+  '#hired',
+  '#lost',
+];
+
+// Детект CV работает и в реплаях, а наши же ответы (алерт о расхождении CV,
+// уведомление о сбое анализа) содержат внутри ссылку на резюме — без этой
+// проверки бот триггерит сам себя: фиктивная карточка в пайплайне, лишний
+// инкремент cvSentCount и повторная постановка проверки консистентности.
+// Проверка по автору тут не работает — см. комментарий у wasPostedByUs.
+async function isOwnComment(commentId: string, body: string): Promise<boolean> {
+  return isOwnCommentBody(body) || (await wasPostedByUs(commentId));
+}
+
+// Ищет резюме в комментарии: visualcv-ссылка или файл (PDF/DOC/TXT).
+// Стадийные комментарии исключаем — транскрипт, приложенный файлом, выглядит
+// для детектора ровно как CV (см. hasStageHashtag).
+async function detectCvUrl(
+  commentId: string,
+  body: string,
+  fastify: FastifyInstance,
+): Promise<string | null> {
+  if (hasStageHashtag(body) || (await isOwnComment(commentId, body))) return null;
+
+  const inline = extractCvUrlFromComment(body);
+  if (inline) return inline;
+
+  // Webhook-тело не содержит ссылку на файл, приложенный к комментарию — она
+  // доступна только через API (body после загрузки + bodyData). Дозапрашиваем
+  // лишь когда инлайн-ссылки нет, чтобы не плодить запросы. Тело из API
+  // перепроверяем: для загрузки файла вебхук может прийти с пустым body, и
+  // хэштег виден только в копии из API.
+  try {
+    const detail = await getComment(commentId);
+    if (detail && !isOwnCommentBody(detail.body) && !hasStageHashtag(detail.body)) {
+      return (
+        extractCvUrlFromComment(detail.body) ??
+        extractCvAttachmentFromBodyData(detail.bodyData)
+      );
+    }
+  } catch (err) {
+    fastify.log.warn({ err }, 'Failed to re-fetch comment for CV attachment');
+  }
+  return null;
+}
+
+// Приём найденного резюме: счётчики воронки, карточка пайплайна, проверка
+// консистентности. Вызывается и на новый комментарий, и на правку существующего
+// — отличаются только флагом countAsSent (см. Comment/update хэндлер).
+async function ingestCv(
+  opts: {
+    issueId: string;
+    commentId: string;
+    cvUrl: string;
+    issueTitle: string;
+    countAsSent: boolean;
+  },
+  fastify: FastifyInstance,
+) {
+  const { issueId, commentId, cvUrl, issueTitle, countAsSent } = opts;
+
+  if (countAsSent) {
+    await prisma.incomingRequest.updateMany({
+      where: {
+        linearIssueId: issueId,
+        status: { in: ['new', 'in_progress'] },
+      },
+      data: {
+        status: 'cv_sent',
+        cvSentCount: { increment: 1 },
+      },
+    }).catch(err => fastify.log.warn({ err }, 'Failed to update cv_sent status'));
+
+    // Increment count even if status already beyond cv_sent
+    await prisma.incomingRequest.updateMany({
+      where: {
+        linearIssueId: issueId,
+        status: { notIn: ['new', 'in_progress'] },
+      },
+      data: {
+        cvSentCount: { increment: 1 },
+      },
+    }).catch(err => fastify.log.warn({ err }, 'Failed to increment cv count'));
+  }
+
+  // Инвалидируем кэш статистики, чтобы Candidate Pipeline обновился
+  // сразу через SSE, а не только по кнопке "обновить"
+  await invalidateStatsCache();
+
+  setImmediate(async () => {
+    const req = await prisma.incomingRequest.findUnique({
+      where: { linearIssueId: issueId },
+      select: { role: true, clientName: true },
+    }).catch(() => null);
+
+    const fromTitle = parseIssueTitle(issueTitle);
+
+    const { enriched, cvUnreadable } = await upsertPipelineCandidateFromCv({
+      issueId,
+      rootCommentId: commentId,
+      cvUrl,
+      role: req?.role ?? fromTitle.role,
+      clientName: req?.clientName ?? fromTitle.clientName,
+    });
+
+    // Битая ссылка/неподдержанный формат — карточка есть, но без имени и
+    // уровня, и проверка консистентности по ней не пойдёт. Молчать нельзя:
+    // кандидат тихо выпадает из контроля, пока ссылку не починят.
+    if (cvUnreadable) {
+      await postCvUnreadableNoticeOnce(issueId, commentId, cvUrl)
+        .catch(err => fastify.log.warn({ err }, 'Failed to post CV-unreadable notice'));
+    } else if (enriched) {
+      await resolveCvUnreadableNotice(issueId, commentId)
+        .catch(err => fastify.log.warn({ err }, 'Failed to resolve CV-unreadable notice'));
+    }
+
+    const cvAlertsOn = (process.env.CV_CONSISTENCY_ALERTS ?? 'off').toLowerCase() === 'on';
+    fastify.log.info({ rootCommentId: commentId, enriched, cvAlertsOn }, '[cv-consistency] CV ingested, enqueue?');
+    if (enriched && cvAlertsOn) {
+      await cvConsistencyQueue
+        .add(
+          'check',
+          { rootCommentId: commentId },
+          {
+            jobId: `cv-consistency-${commentId}`,
+            removeOnComplete: { age: 3600 },
+            removeOnFail: { age: 3600 },
+          },
+        )
+        .then(() => fastify.log.info({ rootCommentId: commentId }, '[cv-consistency] enqueued'))
+        .catch((err) => fastify.log.warn({ err }, 'Failed to enqueue cv-consistency'));
+    }
+  });
+}
 
 export async function linearWebhookRoutes(fastify: FastifyInstance) {
 
@@ -72,108 +214,41 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
 
         if (!issueId) return reply.status(200).send({ ok: true });
 
+        // Роль и клиента берём из заголовка тикета, который уже лежит в payload.
+        // Раньше здесь передавался только linearIssueId, и для тикетов, живших
+        // до подключения вебхука (событие Issue/create по ним не приходило),
+        // role/clientName в IncomingRequest навсегда оставались null — карточка
+        // в пайплайне показывала "—", хотя в анализе роль была (её достаёт
+        // parseIssue отдельным путём).
+        const issueTitle = data.issue?.title ?? '';
+        const titleParts = parseIssueTitle(issueTitle);
+
         // Создаём запись, если её ещё нет — но не перетираем status,
         // чтобы не писать мусорные переходы в историю при каждом комментарии
         await upsertIncomingRequest({
           linearIssueId: issueId,
+          role: titleParts.role || undefined,
+          clientName: titleParts.clientName || undefined,
         }).catch(err => fastify.log.warn({ err }, 'Failed to upsert IncomingRequest'));
 
         fastify.log.info(`Linear: new comment in issue ${issueId}`);
 
         // CV detection — visualcv-ссылка или CV, приложенный файлом (PDF/DOC/TXT).
-        // Только root-комментарии (Linear шлёт плоское поле parentId).
-        // Игнорируем собственные алерты, иначе ссылка на CV внутри алерта
-        // снова распознаётся как новое резюме (бесконечная петля).
-        const isRootComment = !data.parentId && !data.parent?.id;
-        const isOwnAlert = commentBody.includes('Possible CV mismatch');
-        let cvUrl = isRootComment && !isOwnAlert ? extractCvUrlFromComment(commentBody) : null;
+        // Любой комментарий, root или реплай: одно найденное резюме = одна
+        // карточка пайплайна, ключ — id этого самого комментария.
+        const isReply = !!(data.parentId ?? data.parent?.id);
+        const cvUrl = await detectCvUrl(data.id, commentBody, fastify);
 
-        // Webhook-тело не содержит ссылку на файл, приложенный к комментарию —
-        // она доступна только через API (body после загрузки + bodyData).
-        // Дозапрашиваем лишь когда инлайн-ссылки нет, чтобы не плодить запросы.
-        if (!cvUrl && isRootComment && !isOwnAlert) {
-          try {
-            const detail = await getComment(data.id);
-            if (detail && !detail.body.includes('Possible CV mismatch')) {
-              cvUrl =
-                extractCvUrlFromComment(detail.body) ??
-                extractCvAttachmentFromBodyData(detail.bodyData);
-            }
-          } catch (err) {
-            fastify.log.warn({ err }, 'Failed to re-fetch comment for CV attachment');
-          }
-        }
-
-        if (cvUrl && issueId) {
-          await prisma.incomingRequest.updateMany({
-            where: {
-              linearIssueId: issueId,
-              status: { in: ['new', 'in_progress'] },
-            },
-            data: {
-              status: 'cv_sent',
-              cvSentCount: { increment: 1 },
-            },
-          }).catch(err => fastify.log.warn({ err }, 'Failed to update cv_sent status'));
-
-          // Increment count even if status already beyond cv_sent
-          await prisma.incomingRequest.updateMany({
-            where: {
-              linearIssueId: issueId,
-              status: { notIn: ['new', 'in_progress'] },
-            },
-            data: {
-              cvSentCount: { increment: 1 },
-            },
-          }).catch(err => fastify.log.warn({ err }, 'Failed to increment cv count'));
-
-          // Инвалидируем кэш статистики, чтобы Candidate Pipeline обновился
-          // сразу через SSE, а не только по кнопке "обновить"
-          await invalidateStatsCache();
-
-          setImmediate(async () => {
-            const req = await prisma.incomingRequest.findUnique({
-              where: { linearIssueId: issueId },
-              select: { role: true, clientName: true },
-            }).catch(() => null);
-
-            const { enriched } = await upsertPipelineCandidateFromCv({
-              issueId,
-              rootCommentId: data.id,
-              cvUrl,
-              role: req?.role,
-              clientName: req?.clientName,
-            });
-
-            const cvAlertsOn = (process.env.CV_CONSISTENCY_ALERTS ?? 'off').toLowerCase() === 'on';
-            fastify.log.info({ rootCommentId: data.id, enriched, cvAlertsOn }, '[cv-consistency] CV ingested, enqueue?');
-            if (enriched && cvAlertsOn) {
-              await cvConsistencyQueue
-                .add(
-                  'check',
-                  { rootCommentId: data.id },
-                  {
-                    jobId: `cv-consistency-${data.id}`,
-                    removeOnComplete: { age: 3600 },
-                    removeOnFail: { age: 3600 },
-                  },
-                )
-                .then(() => fastify.log.info({ rootCommentId: data.id }, '[cv-consistency] enqueued'))
-                .catch((err) => fastify.log.warn({ err }, 'Failed to enqueue cv-consistency'));
-            }
-          });
+        if (cvUrl) {
+          fastify.log.info({ commentId: data.id, isReply }, 'CV detected');
+          await ingestCv({ issueId, commentId: data.id, cvUrl, issueTitle, countAsSent: true }, fastify);
         }
 
         // Re-evaluate all stages whenever a stage-marker comment lands — this
         // catches the case where the trigger arrives before the matching
         // status (manager_call/technical) or where a #hired/#lost marker is
         // added after the issue is already in Hired/Lost.
-        const hasStageMarker =
-          commentBody.includes('#feedback_manager_call') ||
-          commentBody.includes('#manager_call_transcript') ||
-          commentBody.includes('#technical_call_transcript') ||
-          commentBody.includes('#hired') ||
-          commentBody.includes('#lost');
+        const hasStageMarker = STAGE_MARKERS.some(tag => containsHashtag(commentBody, tag));
 
         if (hasStageMarker) {
           await evaluateAndTriggerStages(issueId, fastify);
@@ -202,26 +277,41 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
       // ── Триггер на редактирование комментария ───────────────────────────
       // Нужен, чтобы правка битой ссылки на транскрипт/CV (в том же
       // комментарии, а не новым) реально перезапускала анализ — иначе
-      // пользователь чинит ссылку, а система об этом не узнаёт. Сознательно
-      // не дублируем CV-detection/increment-логику из create-хэндлера выше
-      // (она бы задвоила счётчики при каждой правке) — URL транскрипта/CV
-      // и так вычитываются заново из Linear при каждом evaluateAndTriggerStages.
+      // пользователь чинит ссылку, а система об этом не узнаёт.
       if (type === 'Comment' && action === 'update') {
         const commentBody = data.body ?? '';
         const issueId = data.issue?.id;
         fastify.log.info({ commentData: JSON.stringify(data, null, 2) }, 'RAW COMMENT UPDATE PAYLOAD');
 
         if (issueId) {
-          const hasStageMarker =
-            commentBody.includes('#feedback_manager_call') ||
-            commentBody.includes('#manager_call_transcript') ||
-            commentBody.includes('#technical_call_transcript') ||
-            commentBody.includes('#hired') ||
-            commentBody.includes('#lost');
+          const hasStageMarker = STAGE_MARKERS.some(tag => containsHashtag(commentBody, tag));
 
           if (hasStageMarker) {
             fastify.log.info(`Linear: comment edited in issue ${issueId} — re-evaluating stages`);
             await evaluateAndTriggerStages(issueId, fastify);
+          }
+
+          // Правка комментария с резюме — штатный способ починить нечитаемую
+          // ссылку (именно это предлагает postCvUnreadableNoticeOnce). Перечитываем
+          // CV, но cvSentCount инкрементим ТОЛЬКО если карточки для этого
+          // комментария ещё не было: иначе каждая правка накручивала бы воронку.
+          const cvUrl = await detectCvUrl(data.id, commentBody, fastify);
+          if (cvUrl) {
+            const tracked = await prisma.pipelineCandidate.findUnique({
+              where: { rootCommentId: data.id },
+              select: { cvUrl: true, cvText: true },
+            }).catch(() => null);
+
+            // Вебхук на update приходит и когда тело не менялось — не гоняем
+            // скачивание и LLM впустую, если ссылка та же и текст уже извлечён.
+            const alreadyIngested = tracked && tracked.cvUrl === cvUrl && !!tracked.cvText;
+            if (!alreadyIngested) {
+              fastify.log.info({ commentId: data.id, hadCard: !!tracked }, 'CV detected in edited comment');
+              await ingestCv(
+                { issueId, commentId: data.id, cvUrl, issueTitle: data.issue?.title ?? '', countAsSent: !tracked },
+                fastify,
+              );
+            }
           }
         }
 
@@ -311,11 +401,13 @@ export async function linearWebhookRoutes(fastify: FastifyInstance) {
         // this catches comments that arrived before the status was set
         // (e.g. manager_call transcript posted while issue still in
         // "In Progress", or final markers added before Hired/Lost).
+        // Переиспользуем уже разрезолвленный mappedStatus вместо сравнения
+        // отображаемого имени — по той же причине, что в evaluateAndTriggerStages.
         if (
-          newStatus === STATUS_BROKERS_CALL ||
-          newStatus === STATUS_TECH_CALL ||
-          newStatus === STATUS_HIRED ||
-          newStatus === STATUS_LOST
+          mappedStatus === 'manager_call' ||
+          mappedStatus === 'technical' ||
+          mappedStatus === 'hired' ||
+          mappedStatus === 'lost'
         ) {
           await evaluateAndTriggerStages(issueId, fastify);
         }
@@ -359,7 +451,22 @@ async function evaluateAndTriggerStages(
 
   const jobs: Promise<unknown>[] = [];
 
-  if (parsed.status === STATUS_BROKERS_CALL) {
+  // Резолвим статус тикета в внутренний ключ по стабильному id стейта, а не
+  // сравниваем отображаемое имя строкой. Имена в Linear переименовывают (в
+  // проде уже было: "Client Review" → "Client Review (CV)"), а раньше любое
+  // расхождение — регистр, суффикс в скобках, типографский апостроф в
+  // "Broker's Call" — молча отключало ВСЕ анализы: CV продолжали считаться,
+  // а таблица Interview оставалась пустой, и воронка на дашборде показывала нули.
+  const stage = resolveStage({ id: parsed.stateId, name: parsed.status }, fastify.log);
+  if (!stage) {
+    fastify.log.warn(
+      { issueId, stateName: parsed.status, stateId: parsed.stateId },
+      'Issue status not mapped to a pipeline stage — no analysis will be triggered',
+    );
+    return;
+  }
+
+  if (stage === 'manager_call') {
     const ready = findCandidatesForManagerCall(parsed.candidates)
       .filter(notYetAnalyzed('manager_call'));
     if (ready.length > 0) {
@@ -368,7 +475,7 @@ async function evaluateAndTriggerStages(
     }
   }
 
-  if (parsed.status === STATUS_TECH_CALL) {
+  if (stage === 'technical') {
     const ready = findCandidatesForTechCall(parsed.candidates)
       .filter(notYetAnalyzed('technical'));
     if (ready.length > 0) {
@@ -377,7 +484,7 @@ async function evaluateAndTriggerStages(
     }
   }
 
-  if (parsed.status === STATUS_HIRED || parsed.status === STATUS_LOST) {
+  if (stage === 'hired' || stage === 'lost') {
     // В одном тикете может быть несколько кандидатов: кого-то реально взяли,
     // кого-то нет. Финальный анализ ставим КАЖДОМУ по его собственному
     // маркеру в треде (#hired → decision=hired, #lost → decision=lost),

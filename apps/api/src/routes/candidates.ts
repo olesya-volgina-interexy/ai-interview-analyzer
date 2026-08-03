@@ -4,6 +4,9 @@ import { clusterTextItems } from '../services/llm.service';
 import { getScore, avg } from '../utils/scoring';
 import type { Prisma } from '@prisma/client';
 
+// Порядок таблеток стадий в пайплайне — по ходу воронки, а не по дате анализа.
+const STAGE_DISPLAY_ORDER = ['manager_call', 'technical', 'final_result'] as const;
+
 export async function candidateRoutes(fastify: FastifyInstance) {
 
   fastify.get('/candidates', async (request) => {
@@ -233,6 +236,11 @@ export async function candidateRoutes(fastify: FastifyInstance) {
 
     const take = Number(limit ?? 20);
     const skip = (Number(page ?? 1) - 1) * take;
+    // Отдаём на одну строку больше запрошенного — пробник «есть ли ещё
+    // страница». Раньше этот +1 добавлял фронт к самому limit, из-за чего skip
+    // сдвигался на 21 при показанных 20 и кандидат на стыке страниц не попадал
+    // ни в одну из них.
+    const probe = take + 1;
 
     const where: Prisma.PipelineCandidateWhereInput = {};
 
@@ -251,11 +259,12 @@ export async function candidateRoutes(fastify: FastifyInstance) {
       if (to) where.cvSubmittedAt.lte = new Date(to);
     }
 
+    // Пагинацию применяем ПОСЛЕ группировки, поэтому тянем весь отфильтрованный
+    // набор, а не страницу: одна карточка = одно резюме, и несколько резюме
+    // одного человека на одну вакансию сворачиваются в одну строку (см. ниже).
     const candidates = await prisma.pipelineCandidate.findMany({
       where,
       orderBy: { cvSubmittedAt: 'desc' },
-      skip,
-      take,
       select: {
         id: true,
         candidateName: true,
@@ -295,29 +304,69 @@ export async function candidateRoutes(fastify: FastifyInstance) {
       interviewMap.get(key)!.push(iv);
     }
 
-    const result = candidates.map(c => {
-      const key = `${c.linearIssueId}:${c.rootCommentId}`;
-      const ivs = interviewMap.get(key) ?? [];
-      const sorted = [...ivs].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-      const last = sorted[0];
+    // Повторно прикреплённое резюме одного и того же человека на ОДНУ вакансию —
+    // это не второй кандидат, а вторая версия CV, поэтому строки сворачиваем и
+    // отдаём количество с датами. Один человек на РАЗНЫХ вакансиях остаётся
+    // отдельными строками: это разные процессы со своими стадиями.
+    // Карточки без распознанного имени не группируем — под "—" попали бы
+    // разные люди.
+    const groups = new Map<string, typeof candidates>();
+    for (const c of candidates) {
+      const name = c.candidateName?.trim().toLowerCase();
+      const key = name ? `${c.linearIssueId}::${name}` : `id::${c.id}`;
+      const group = groups.get(key);
+      if (group) group.push(c);
+      else groups.set(key, [c]);
+    }
+
+    const result = [...groups.values()].map(group => {
+      // Порядок из запроса (cvSubmittedAt desc) сохраняется, поэтому первая
+      // карточка группы — самое свежее резюме, оно и представляет строку.
+      const latest = group[0];
+      const firstOf = <K extends 'level' | 'role' | 'clientName'>(field: K) =>
+        group.find(c => c[field] != null)?.[field] ?? null;
+
+      // Интервью привязаны к корню треда, а ключ карточки может быть реплаем —
+      // поэтому собираем по всем комментариям группы, а не только по свежему.
+      const ivs = group.flatMap(c => interviewMap.get(`${c.linearIssueId}:${c.rootCommentId}`) ?? []);
+      const byRecency = [...ivs].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+      // Отдаём ВСЕ пройденные стадии, а не только последнюю: кандидат мог
+      // пройти и менеджер-колл, и техничку, и финал — в колонке нужны все
+      // таблетки. На стадию берём самый свежий анализ (мог быть переанализ).
+      // Interview.stage — свободная строка, поэтому известные стадии выводим в
+      // порядке воронки, а всё незнакомое дописываем в конец, а не теряем.
+      const seen = [...new Set(byRecency.map(i => i.stage))];
+      const ordered = [
+        ...STAGE_DISPLAY_ORDER.filter(s => seen.includes(s)),
+        ...seen.filter(s => !STAGE_DISPLAY_ORDER.includes(s as any)),
+      ];
+      const stages = ordered.map(stage => ({
+        stage,
+        decision: byRecency.find(i => i.stage === stage)?.decision ?? null,
+      }));
 
       return {
-        id: c.id,
-        candidateName: c.candidateName,
-        cvUrl: c.cvUrl,
-        level: c.level,
-        role: c.role,
-        clientName: c.clientName,
-        cvSubmittedAt: c.cvSubmittedAt.toISOString(),
-        linearIssueId: c.linearIssueId,
+        id: latest.id,
+        candidateName: latest.candidateName,
+        cvUrl: latest.cvUrl,
+        level: firstOf('level'),
+        role: firstOf('role'),
+        clientName: firstOf('clientName'),
+        cvSubmittedAt: latest.cvSubmittedAt.toISOString(),
+        cvCount: group.length,
+        cvSubmittedDates: group.map(c => c.cvSubmittedAt.toISOString()),
+        linearIssueId: latest.linearIssueId,
         interviewCount: ivs.length,
-        lastStage: last?.stage ?? null,
-        lastDecision: last?.decision ?? null,
+        stages,
       };
     });
 
-    if (hasInterviews === 'yes') return result.filter(r => r.interviewCount > 0);
-    if (hasInterviews === 'no') return result.filter(r => r.interviewCount === 0);
-    return result;
+    const filtered =
+      hasInterviews === 'yes' ? result.filter(r => r.interviewCount > 0) :
+      hasInterviews === 'no' ? result.filter(r => r.interviewCount === 0) :
+      result;
+
+    return filtered.slice(skip, skip + probe);
   });
 }
