@@ -44,17 +44,24 @@ interface UpsertPipelineCandidateInput {
   cvUrl: string;
   role?: string | null;
   clientName?: string | null;
+  // Только для бэкфилла: время исходного комментария с резюме. Без него все
+  // добэкфилленные карточки схлопнулись бы в дату прогона скрипта и сломали
+  // сортировку и фильтр по датам в пайплайне. На update не применяется.
+  cvSubmittedAt?: Date;
 }
 
 interface UpsertPipelineCandidateResult {
   created: boolean;
   enriched: boolean;
+  // Отличает «резюме не скачалось/не распарсилось» от «не смогли записать строку».
+  // Только в первом случае имеет смысл писать в Linear, что ссылка нечитаема.
+  cvUnreadable: boolean;
 }
 
 export async function upsertPipelineCandidateFromCv(
   input: UpsertPipelineCandidateInput,
 ): Promise<UpsertPipelineCandidateResult> {
-  const { issueId, rootCommentId, cvUrl, role, clientName } = input;
+  const { issueId, rootCommentId, cvUrl, role, clientName, cvSubmittedAt } = input;
 
   let existing: { id: string } | null;
   try {
@@ -71,12 +78,13 @@ export async function upsertPipelineCandidateFromCv(
         cvUrl,
         role: role ?? undefined,
         clientName: clientName ?? undefined,
+        cvSubmittedAt: cvSubmittedAt ?? undefined,
       },
       update: { cvUrl },
     });
   } catch (err) {
     console.warn('[pipeline-candidate] failed to create/update base row', { rootCommentId, ...describeError(err) });
-    return { created: false, enriched: false };
+    return { created: false, enriched: false, cvUnreadable: false };
   }
 
   try {
@@ -95,7 +103,7 @@ export async function upsertPipelineCandidateFromCv(
       },
     });
 
-    return { created: !existing, enriched: true };
+    return { created: !existing, enriched: true, cvUnreadable: false };
   } catch (err) {
     console.warn('[pipeline-candidate] enrichment failed', { rootCommentId, ...describeError(err) });
 
@@ -107,6 +115,6 @@ export async function upsertPipelineCandidateFromCv(
       }).catch(() => {});
     }
 
-    return { created: !existing, enriched: false };
+    return { created: !existing, enriched: false, cvUnreadable: true };
   }
 }
